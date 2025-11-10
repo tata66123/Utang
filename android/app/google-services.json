@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "678270925005",
+    "project_id": "smartcredit-35525",
+    "storage_bucket": "smartcredit-35525.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:678270925005:android:bb5b513ff10136083f5184",
+        "android_client_info": {
+          "package_name": "com.example.mobile_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCA8JKsVWhJxIQKbSWQl7htwqye30TGUds"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
