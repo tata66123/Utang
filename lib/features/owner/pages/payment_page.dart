@@ -112,7 +112,7 @@ class _PaymentPageState extends State<PaymentPage> {
                                 : 'Choose a customer',
                           ),
                           isExpanded: true,
-                          value: customersWithBalance.containsKey(_selectedCustomerId)
+                          initialValue: customersWithBalance.containsKey(_selectedCustomerId)
                               ? _selectedCustomerId
                               : null,
                           items: customersWithBalance.isEmpty

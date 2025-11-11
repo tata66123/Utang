@@ -206,79 +206,95 @@ class _DashboardBody extends StatelessWidget {
     
     final recentCreditsList = recentCredits.take(3).toList();
     
-    if (recentCreditsList.isEmpty) {
-      return Column(
-        children: [
-          Icon(Icons.inbox, size: 48, color: Colors.grey.shade400),
-          const SizedBox(height: 8),
-          Text(
-            'No recent activity',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade600,
-            ),
-          ),
-        ],
-      );
-    }
+    return Builder(
+      builder: (context) {
+        final theme = Theme.of(context);
+        final isDark = theme.brightness == Brightness.dark;
+        
+        if (recentCreditsList.isEmpty) {
+          return Column(
+            children: [
+              Icon(
+                Icons.inbox,
+                size: 48,
+                color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'No recent activity',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                ),
+              ),
+            ],
+          );
+        }
 
-    return Column(
-      children: recentCreditsList.map((credit) {
-        return FutureBuilder<Customer?>(
-          future: store.getCustomerById(credit.customerId),
-          builder: (context, snapshot) {
-            final name = (snapshot.hasData && snapshot.data != null && snapshot.data!.name.isNotEmpty)
-              ? snapshot.data!.name
-              : 'Unknown';
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 16,
-                    backgroundColor: credit.balance > 0 ? Colors.orange.shade100 : Colors.green.shade100,
-                    child: Icon(
-                      credit.balance > 0 ? Icons.receipt : Icons.check,
-                      size: 16,
-                      color: credit.balance > 0 ? Colors.orange : Colors.green,
+        return Column(
+          children: recentCreditsList.map((credit) {
+            return FutureBuilder<Customer?>(
+              future: store.getCustomerById(credit.customerId),
+              builder: (context, snapshot) {
+                final name = (snapshot.hasData && snapshot.data != null && snapshot.data!.name.isNotEmpty)
+                  ? snapshot.data!.name
+                  : 'Unknown';
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.grey.shade800 : Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isDark ? Colors.grey.shade700 : Colors.grey.shade200,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '$name - ${credit.item}',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 16,
+                        backgroundColor: credit.balance > 0
+                            ? (isDark ? Colors.orange.shade900.withOpacity(0.3) : Colors.orange.shade100)
+                            : (isDark ? Colors.green.shade900.withOpacity(0.3) : Colors.green.shade100),
+                        child: Icon(
+                          credit.balance > 0 ? Icons.receipt : Icons.check,
+                          size: 16,
+                          color: credit.balance > 0 ? Colors.orange : Colors.green,
                         ),
-                        Text(
-                          '₱${credit.amount.toStringAsFixed(2)} • ${_formatDateTime(credit.date)}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade600,
-                          ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '$name - ${credit.item}',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                                color: isDark ? Colors.grey.shade100 : Colors.black87,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              '₱${credit.amount.toStringAsFixed(2)} • ${_formatDateTime(credit.date)}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             );
-          },
+          }).toList(),
         );
-      }).toList(),
+      },
     );
   }
 
@@ -296,6 +312,205 @@ class _DashboardBody extends StatelessWidget {
     } else {
       return '${date.day}/${date.month}/${date.year} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
     }
+  }
+
+  String _getMonthTotalCredits(DataStore store) {
+    final now = DateTime.now();
+    final monthStart = DateTime(now.year, now.month, 1);
+    final monthEnd = DateTime(now.year, now.month + 1, 1);
+    
+    double total = 0;
+    for (final credit in store.state.credits) {
+      if (credit.date.isAfter(monthStart.subtract(const Duration(days: 1))) && 
+          credit.date.isBefore(monthEnd)) {
+        total += credit.amount;
+      }
+    }
+    
+    return '₱${total.toStringAsFixed(2)}';
+  }
+
+  String _getMonthTotalPayments(DataStore store) {
+    final now = DateTime.now();
+    final monthStart = DateTime(now.year, now.month, 1);
+    final monthEnd = DateTime(now.year, now.month + 1, 1);
+    
+    double total = 0;
+    for (final credit in store.state.credits) {
+      for (final payment in credit.payments) {
+        if (payment.date.isAfter(monthStart.subtract(const Duration(days: 1))) && 
+            payment.date.isBefore(monthEnd)) {
+          total += payment.amount;
+        }
+      }
+    }
+    
+    return '₱${total.toStringAsFixed(2)}';
+  }
+
+  Widget _buildSimpleChart(DataStore store) {
+    final creditSpots = _generateChartData(store);
+    final paymentSpots = _generatePaymentData(store);
+    final now = DateTime.now();
+    final daysInMonth = DateTime(now.year, now.month + 1, 1).difference(DateTime(now.year, now.month, 1)).inDays;
+    
+    // Find max value for scaling
+    double maxValue = 0;
+    for (final spot in [...creditSpots, ...paymentSpots]) {
+      if (spot.y > maxValue) maxValue = spot.y;
+    }
+    
+    // Simple scaling
+    double maxY = maxValue > 0 ? (maxValue * 1.2).ceilToDouble() : 1000;
+    if (maxY < 100) maxY = 100;
+    
+    // If no data, show empty state
+    if (creditSpots.isEmpty && paymentSpots.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.bar_chart, size: 32, color: Colors.grey.shade400),
+            const SizedBox(height: 8),
+            Text(
+              'No data available',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    return LineChart(
+      LineChartData(
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          drawHorizontalLine: true,
+          horizontalInterval: maxY / 4,
+          getDrawingHorizontalLine: (value) {
+            return FlLine(
+              color: Colors.grey.shade200,
+              strokeWidth: 1,
+            );
+          },
+        ),
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 40,
+              interval: maxY / 4,
+              getTitlesWidget: (value, meta) {
+                if (value < 0) return const SizedBox();
+                String text;
+                if (value >= 1000) {
+                  text = '₱${(value / 1000).toStringAsFixed(1)}k';
+                } else {
+                  text = '₱${value.toStringAsFixed(0)}';
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(right: 4.0),
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 25,
+              interval: daysInMonth > 15 ? 7.0 : 5.0,
+              getTitlesWidget: (value, meta) {
+                final day = value.toInt();
+                if (day < 1 || day > daysInMonth || day != value) {
+                  return const SizedBox();
+                }
+                return Text(
+                  '$day',
+                  style: TextStyle(
+                    fontSize: 9,
+                    color: Colors.grey.shade600,
+                  ),
+                );
+              },
+            ),
+          ),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        ),
+        borderData: FlBorderData(
+          show: true,
+          border: Border.all(
+            color: Colors.grey.shade300,
+            width: 1,
+          ),
+        ),
+        lineBarsData: [
+          // Credits line
+          LineChartBarData(
+            spots: creditSpots,
+            isCurved: true,
+            curveSmoothness: 0.3,
+            color: Colors.blue.shade400,
+            barWidth: 2.5,
+            isStrokeCapRound: true,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: false,
+            ),
+          ),
+          // Payments line
+          LineChartBarData(
+            spots: paymentSpots,
+            isCurved: true,
+            curveSmoothness: 0.3,
+            color: Colors.green.shade400,
+            barWidth: 2.5,
+            isStrokeCapRound: true,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: false,
+            ),
+          ),
+        ],
+        minX: 1,
+        maxX: daysInMonth.toDouble(),
+        minY: 0,
+        maxY: maxY,
+        lineTouchData: LineTouchData(
+          enabled: true,
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((touchedSpot) {
+                final isCredit = touchedSpot.barIndex == 0;
+                final label = isCredit ? 'Credits' : 'Payments';
+                final amount = touchedSpot.y;
+                final day = touchedSpot.x.toInt();
+                
+                return LineTooltipItem(
+                  '$label\nDay $day: ₱${amount.toStringAsFixed(2)}',
+                  TextStyle(
+                    color: isCredit ? Colors.blue.shade700 : Colors.green.shade700,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                  ),
+                );
+              }).toList();
+            },
+          ),
+        ),
+      ),
+    );
   }
 
 
@@ -832,17 +1047,196 @@ class _DashboardBody extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Welcome, $displayName!", 
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue)),
+                Text(
+                  "Welcome, $displayName!",
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
                 const SizedBox(height: 4),
-                Text("Store: $storeName", 
-                  style: TextStyle(fontSize: 16, color: Colors.blue.shade700)),
+                Text(
+                  "Store: $storeName",
+                  style: TextStyle(fontSize: 16, color: Colors.blue.shade700),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
               ],
             ),
           ),
           const SizedBox(height: 20),
           
-          // Data Visualization Section
+          // Data Visualization Section - SIMPLIFIED VERSION WITH SMALL GRAPH
+          // TO REVERT: Uncomment the complex chart section below and remove this simple version
+          Text(
+            "This Month Summary",
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 12),
+          
+          // Simple compact graph
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Daily Overview',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Row(
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 10,
+                                height: 10,
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade400,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Credits',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 12),
+                          Row(
+                            children: [
+                              Container(
+                                width: 10,
+                                height: 10,
+                                decoration: BoxDecoration(
+                                  color: Colors.green.shade400,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Payments',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 150,
+                    child: _buildSimpleChart(store),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          
+          // Month totals
+          Row(
+            children: [
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.add_circle, color: Colors.blue.shade600, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Total Credits',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey.shade700,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _getMonthTotalCredits(store),
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade700,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.payment, color: Colors.green.shade600, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Total Payments',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey.shade700,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _getMonthTotalPayments(store),
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade700,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          
+          /* ORIGINAL COMPLEX CHART - UNCOMMENT TO REVERT
           Text("Data Visualization", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           Card(
@@ -930,10 +1324,15 @@ class _DashboardBody extends StatelessWidget {
               ),
             ),
           ),
+          */
           const SizedBox(height: 20),
           
           // Clickable stats grid
-          Text("Overview", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          Text(
+            "Overview",
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            overflow: TextOverflow.ellipsis,
+          ),
           const SizedBox(height: 12),
           GridView.count(
             crossAxisCount: 2,
@@ -968,34 +1367,50 @@ class _DashboardBody extends StatelessWidget {
           const SizedBox(height: 20),
           
           // Recent Activity Section
-          Container(
-            padding: const EdgeInsets.all(16.0),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          Builder(
+            builder: (context) {
+              final theme = Theme.of(context);
+              final isDark = theme.brightness == Brightness.dark;
+              
+              return Container(
+                padding: const EdgeInsets.all(16.0),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.grey.shade800 : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark ? Colors.grey.shade700 : Colors.grey.shade200,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.history, color: Colors.grey.shade600, size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Recent Activity',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey.shade700,
-                      ),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.history,
+                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Recent Activity',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.grey.shade200 : Colors.grey.shade700,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 12),
+                    _buildRecentActivity(store),
                   ],
                 ),
-                const SizedBox(height: 12),
-                _buildRecentActivity(store),
-              ],
-            ),
+              );
+            },
           ),
         ],
       ),
@@ -1047,9 +1462,19 @@ class _ClickableStatCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                  Text(
+                    title,
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
                   const SizedBox(height: 2),
-                  Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+                  Text(
+                    value,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1108,14 +1533,34 @@ class _EnhancedStatCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                  Text(
+                    title,
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
                   const SizedBox(height: 2),
-                  Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+                  Text(
+                    value,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
                   const SizedBox(height: 2),
-                  Text(subtitle, style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+                  Text(
+                    subtitle,
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
                 ],
               ),
-              Text(lastSynced, style: TextStyle(color: Colors.grey.shade400, fontSize: 8)),
+              Text(
+                lastSynced,
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 8),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
             ],
           ),
         ),
@@ -1157,15 +1602,24 @@ class _TotalPaidCard extends StatelessWidget {
                   Icon(Icons.open_in_new, size: 14, color: Colors.grey.shade400),
                 ],
               ),
-              const Text('Total Amount Paid', style: TextStyle(color: Colors.grey, fontSize: 13)),
+              Text(
+                'Total Amount Paid',
+                style: const TextStyle(color: Colors.grey, fontSize: 13),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
               Text(
                 '₱${totalPaid.toStringAsFixed(2)}',
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
               const SizedBox(height: 6),
               Text(
                 'Tap to view paid items by customer',
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 11),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
             ],
           ),

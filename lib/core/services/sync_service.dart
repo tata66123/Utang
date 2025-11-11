@@ -73,16 +73,16 @@ class SyncService {
 
   Future<void> _syncUserData(User user) async {
     try {
-      // Try to get user from Firebase
+      // Check if user already exists in Firebase
       final firebaseUser = await _firebaseService.getUser(user.id);
       
       if (firebaseUser == null) {
-        // User doesn't exist in Firebase, create it
+        // User doesn't exist in Firebase, upload it (offline-created)
+        print('Uploading offline-created user: ${user.username} (${user.id})');
         await _firebaseService.saveUser(user);
       } else {
-        // User exists, check if local is newer
-        // For simplicity, we'll always update Firebase with local data
-        await _firebaseService.updateUser(user);
+        // User already exists in Firebase, skip to avoid duplicates
+        print('User ${user.username} (${user.id}) already exists in Firebase, skipping');
       }
     } catch (e) {
       print('Error syncing user data: $e');
@@ -92,8 +92,10 @@ class SyncService {
 
   Future<void> _syncCustomers() async {
     try {
-      // Step 1: Upload unsynced local customers to Firebase
+      // Only upload unsynced local customers to Firebase (offline-created data)
       final unsyncedCustomers = await _dbHelper.getUnsyncedRecords('customers');
+      
+      print('Found ${unsyncedCustomers.length} unsynced customers to upload');
       
       for (final customerData in unsyncedCustomers) {
         final customer = Customer.fromJson(customerData);
@@ -103,39 +105,25 @@ class SyncService {
           final firebaseCustomer = await _firebaseService.getCustomer(customer.id);
           
           if (firebaseCustomer == null) {
-            // Customer doesn't exist in Firebase, create it
+            // Customer doesn't exist in Firebase, upload it (offline-created)
+            print('Uploading offline-created customer: ${customer.name} (${customer.id})');
             await _firebaseService.saveCustomer(customer);
+            // Mark as synced only after successful upload
+            await _dbHelper.markAsSynced('customers', customer.id);
           } else {
-            // Customer exists in Firebase, update it if local is newer
-            // For now, we'll use insertOrReplace to handle updates
-            await _firebaseService.updateCustomer(customer);
+            // Customer already exists in Firebase, skip to avoid duplicates
+            print('Customer ${customer.name} (${customer.id}) already exists in Firebase, skipping');
+            // Mark as synced since it already exists in Firebase
+            await _dbHelper.markAsSynced('customers', customer.id);
           }
-          
-          // Mark as synced only after successful upload
-          await _dbHelper.markAsSynced('customers', customer.id);
         } catch (e) {
           print('Error syncing customer ${customer.id}: $e');
           // Continue with other customers - this one will retry on next sync
         }
       }
-
-      // Step 2: Download customers from Firebase and update local database
-      final firebaseCustomers = await _firebaseService.getAllCustomers();
-      final localCustomers = await _dbHelper.getAllCustomers();
-      final localCustomerIds = localCustomers.map((c) => c.id).toSet();
       
-      for (final customer in firebaseCustomers) {
-        if (!localCustomerIds.contains(customer.id)) {
-          // Customer doesn't exist locally, insert it (already synced from Firebase)
-          await _dbHelper.insertCustomer(customer, markAsSynced: true);
-        } else {
-          // Customer exists locally, check if we need to update
-          // Use insertOrReplace to update if needed
-          await _dbHelper.insertOrReplaceCustomer(customer);
-          // Mark as synced if it wasn't already
-          await _dbHelper.markAsSynced('customers', customer.id);
-        }
-      }
+      // Do NOT download from Firebase - only upload offline-created data
+      print('Customer sync completed. Only uploaded offline-created customers.');
     } catch (e) {
       print('Error syncing customers: $e');
       rethrow;
@@ -144,9 +132,11 @@ class SyncService {
 
   Future<void> _syncCredits() async {
     try {
-      // Step 1: Upload unsynced local credits to Firebase
+      // Only upload unsynced local credits to Firebase (offline-created data)
       final unsyncedCredits = await _dbHelper.getUnsyncedRecords('credits');
       final localCredits = await _dbHelper.getAllCredits();
+      
+      print('Found ${unsyncedCredits.length} unsynced credits to upload');
       
       for (final creditData in unsyncedCredits) {
         // Get the credit with payments
@@ -157,48 +147,38 @@ class SyncService {
           final firebaseCredit = await _firebaseService.getCredit(credit.id);
           
           if (firebaseCredit == null) {
-            // Credit doesn't exist in Firebase, create it
+            // Credit doesn't exist in Firebase, upload it (offline-created)
+            print('Uploading offline-created credit: ${credit.item} (${credit.id})');
             await _firebaseService.saveCredit(credit);
+            // Mark credit as synced only after successful upload
+            await _dbHelper.markAsSynced('credits', credit.id);
+            
+            // Also mark all payments for this credit as synced
+            for (final payment in credit.payments) {
+              await _dbHelper.markAsSynced('payments', payment.id);
+            }
           } else {
-            // Credit exists in Firebase, update it
-            await _firebaseService.updateCredit(credit);
-          }
-          
-          // Mark credit as synced only after successful upload
-          await _dbHelper.markAsSynced('credits', credit.id);
-          
-          // Also mark all payments for this credit as synced
-          for (final payment in credit.payments) {
-            await _dbHelper.markAsSynced('payments', payment.id);
+            // Credit already exists in Firebase, skip to avoid duplicates
+            print('Credit ${credit.item} (${credit.id}) already exists in Firebase, skipping');
+            // Mark as synced since it already exists in Firebase
+            await _dbHelper.markAsSynced('credits', credit.id);
+            
+            // Also mark all payments as synced
+            for (final payment in credit.payments) {
+              await _dbHelper.markAsSynced('payments', payment.id);
+            }
           }
         } catch (e) {
           print('Error syncing credit ${credit.id}: $e');
           // Continue with other credits - this one will retry on next sync
         }
       }
-
-      // Step 2: Download credits from Firebase and update local database
-      final firebaseCredits = await _firebaseService.getAllCredits();
-      final localCreditIds = localCredits.map((c) => c.id).toSet();
       
-      for (final credit in firebaseCredits) {
-        if (!localCreditIds.contains(credit.id)) {
-          // Credit doesn't exist locally, insert it (already synced from Firebase)
-          await _dbHelper.insertCredit(credit, markAsSynced: true);
-        } else {
-          // Credit exists locally, update it if needed
-          // Mark it as synced after since it came from Firebase
-          await _dbHelper.updateCredit(credit);
-          await _dbHelper.markAsSynced('credits', credit.id);
-          // Mark all payments as synced too
-          for (final payment in credit.payments) {
-            await _dbHelper.markAsSynced('payments', payment.id);
-          }
-        }
-      }
-      
-      // Step 3: Sync standalone payments (payments added directly without credit updates)
+      // Sync standalone payments (payments added directly without credit updates)
       await _syncPayments();
+      
+      // Do NOT download from Firebase - only upload offline-created data
+      print('Credit sync completed. Only uploaded offline-created credits.');
     } catch (e) {
       print('Error syncing credits: $e');
       rethrow;
@@ -207,8 +187,10 @@ class SyncService {
 
   Future<void> _syncPayments() async {
     try {
-      // Get unsynced payments from local database
+      // Only upload unsynced payments to Firebase (offline-created data)
       final unsyncedPayments = await _dbHelper.getUnsyncedRecords('payments');
+      
+      print('Found ${unsyncedPayments.length} unsynced payments to upload');
       
       for (final paymentData in unsyncedPayments) {
         final payment = Payment.fromJson(paymentData);
@@ -219,17 +201,25 @@ class SyncService {
           final firebasePayment = await _firebaseService.getPayment(payment.id);
           
           if (firebasePayment == null) {
-            // Payment doesn't exist in Firebase, save it
+            // Payment doesn't exist in Firebase, upload it (offline-created)
+            print('Uploading offline-created payment: ${payment.id} for credit $creditId');
             await _firebaseService.savePayment(payment, creditId);
+            // Mark as synced only after successful upload
+            await _dbHelper.markAsSynced('payments', payment.id);
+          } else {
+            // Payment already exists in Firebase, skip to avoid duplicates
+            print('Payment ${payment.id} already exists in Firebase, skipping');
+            // Mark as synced since it already exists in Firebase
+            await _dbHelper.markAsSynced('payments', payment.id);
           }
-          
-          // Mark as synced only after successful upload
-          await _dbHelper.markAsSynced('payments', payment.id);
         } catch (e) {
           print('Error syncing payment ${payment.id}: $e');
           // Continue with other payments - this one will retry on next sync
         }
       }
+      
+      // Do NOT download from Firebase - only upload offline-created data
+      print('Payment sync completed. Only uploaded offline-created payments.');
     } catch (e) {
       print('Error syncing payments: $e');
       // Don't rethrow - payment sync failure shouldn't break the entire sync

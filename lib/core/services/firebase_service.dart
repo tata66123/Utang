@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart' as firebase_auth;
 import 'package:firebase_core/firebase_core.dart';
 import '../models/models.dart';
@@ -8,73 +8,103 @@ class FirebaseService {
   factory FirebaseService() => _instance;
   FirebaseService._internal();
 
-  late FirebaseFirestore _firestore;
+  // Firebase Realtime Database URL for Asia-Southeast1 region
+  static const String _databaseURL = 'https://smartcredit-35525-default-rtdb.asia-southeast1.firebasedatabase.app';
+
+  late DatabaseReference _database;
   late firebase_auth.FirebaseAuth _auth;
   bool _initialized = false;
 
   Future<void> initialize() async {
     if (!_initialized) {
       await Firebase.initializeApp();
-      _firestore = FirebaseFirestore.instance;
+      // Use the regional database URL
+      _database = FirebaseDatabase.instanceFor(
+        app: Firebase.app(),
+        databaseURL: _databaseURL,
+      ).ref();
       _auth = firebase_auth.FirebaseAuth.instance;
       _initialized = true;
     }
   }
 
   firebase_auth.FirebaseAuth get auth => _auth;
+  DatabaseReference get database => _database;
+
+  // Helper method to convert DateTime to timestamp
+  int _toTimestamp(DateTime? date) {
+    return date?.millisecondsSinceEpoch ?? 0;
+  }
+
+  // Helper method to convert timestamp to DateTime
+  DateTime? _fromTimestamp(int? timestamp) {
+    return timestamp != null && timestamp > 0 ? DateTime.fromMillisecondsSinceEpoch(timestamp) : null;
+  }
 
   // User operations
   Future<void> saveUser(User user) async {
     await initialize();
-    await _firestore.collection('users').doc(user.id).set({
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _database.child('users').child(user.id).set({
+      'id': user.id,
       'email': user.email,
       'username': user.username,
       'storeName': user.storeName,
       'role': user.role.name,
       'password': user.password,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': now,
+      'updatedAt': now,
     });
   }
 
   Future<User?> getUser(String userId) async {
     await initialize();
-    final doc = await _firestore.collection('users').doc(userId).get();
-    if (doc.exists) {
-      final data = doc.data()!;
-      return User(
-        id: doc.id,
-        email: data['email'],
-        username: data['username'],
-        storeName: data['storeName'],
-        role: UserRole.values.firstWhere((e) => e.name == data['role'], orElse: () => UserRole.storeOwner),
-        password: data['password'],
-      );
+    try {
+      final snapshot = await _database.child('users').child(userId).get();
+      if (snapshot.exists && snapshot.value != null) {
+        final data = Map<String, dynamic>.from(snapshot.value as Map);
+        return User(
+          id: userId,
+          email: data['email'] ?? '',
+          username: data['username'] ?? '',
+          storeName: data['storeName'] ?? '',
+          role: UserRole.values.firstWhere((e) => e.name == data['role'], orElse: () => UserRole.storeOwner),
+          password: data['password'],
+        );
+      }
+    } catch (e) {
+      print('Error getting user: $e');
     }
     return null;
   }
 
   Future<User?> getUserByUsername(String username) async {
     await initialize();
-    final query = await _firestore
-        .collection('users')
-        .where('username', isEqualTo: username)
-        .limit(1)
-        .get();
-    if (query.docs.isEmpty) return null;
-    final doc = query.docs.first;
-    final data = doc.data();
-    return User(
-      id: doc.id,
-      email: data['email'] ?? '',
-      username: data['username'] ?? '',
-      storeName: data['storeName'] ?? '',
-      role: UserRole.values.firstWhere(
-        (e) => e.name == data['role'],
-        orElse: () => UserRole.storeOwner,
-      ),
-      password: data['password'],
-    );
+    try {
+      final snapshot = await _database.child('users').get();
+      if (snapshot.exists && snapshot.value != null) {
+        final users = Map<String, dynamic>.from(snapshot.value as Map);
+        for (final entry in users.entries) {
+          final userData = Map<String, dynamic>.from(entry.value as Map);
+          if (userData['username'] == username) {
+            return User(
+              id: entry.key,
+              email: userData['email'] ?? '',
+              username: userData['username'] ?? '',
+              storeName: userData['storeName'] ?? '',
+              role: UserRole.values.firstWhere(
+                (e) => e.name == userData['role'],
+                orElse: () => UserRole.storeOwner,
+              ),
+              password: userData['password'],
+            );
+          }
+        }
+      }
+    } catch (e) {
+      print('Error getting user by username: $e');
+    }
+    return null;
   }
 
   Future<firebase_auth.UserCredential> signInWithEmail(String email, String password) async {
@@ -89,111 +119,143 @@ class FirebaseService {
 
   Future<void> updateUser(User user) async {
     await initialize();
-    await _firestore.collection('users').doc(user.id).update({
+    await _database.child('users').child(user.id).update({
+      'id': user.id,
       'email': user.email,
       'username': user.username,
       'storeName': user.storeName,
       'role': user.role.name,
       'password': user.password,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
     });
   }
 
   Future<void> deleteUser(String userId) async {
     await initialize();
-    await _firestore.collection('users').doc(userId).delete();
+    await _database.child('users').child(userId).remove();
   }
 
   // Customer operations
   Future<void> saveCustomer(Customer customer) async {
     await initialize();
-    await _firestore.collection('customers').doc(customer.id).set({
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _database.child('customers').child(customer.id).set({
+      'id': customer.id,
       'name': customer.name,
       'storeId': customer.storeId,
       'creditLimit': customer.creditLimit,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': now,
+      'updatedAt': now,
     });
   }
 
   Future<Customer?> getCustomer(String customerId) async {
     await initialize();
     try {
-      final doc = await _firestore.collection('customers').doc(customerId).get();
-      if (!doc.exists) return null;
-      final data = doc.data()!;
-      return Customer(
-        id: doc.id,
-        name: data['name'],
-        storeId: data['storeId'],
-        creditLimit: data['creditLimit'] != null ? (data['creditLimit'] as num).toDouble() : null,
-      );
+      final snapshot = await _database.child('customers').child(customerId).get();
+      if (snapshot.exists && snapshot.value != null) {
+        final data = Map<String, dynamic>.from(snapshot.value as Map);
+        return Customer(
+          id: customerId,
+          name: data['name'] ?? '',
+          storeId: data['storeId'],
+          creditLimit: data['creditLimit'] != null ? (data['creditLimit'] as num).toDouble() : null,
+        );
+      }
     } catch (e) {
-      return null;
+      print('Error getting customer: $e');
     }
+    return null;
   }
 
   Future<List<Customer>> getAllCustomers() async {
     await initialize();
-    final snapshot = await _firestore.collection('customers').get();
-    return snapshot.docs.map((doc) {
-      final data = doc.data();
-      return Customer(
-        id: doc.id,
-        name: data['name'],
-        storeId: data['storeId'],
-        creditLimit: data['creditLimit'] != null ? (data['creditLimit'] as num).toDouble() : null,
-      );
-    }).toList();
+    try {
+      final snapshot = await _database.child('customers').get();
+      if (snapshot.exists && snapshot.value != null) {
+        final customers = Map<String, dynamic>.from(snapshot.value as Map);
+        return customers.entries.map((entry) {
+          final data = Map<String, dynamic>.from(entry.value as Map);
+          return Customer(
+            id: entry.key,
+            name: data['name'] ?? '',
+            storeId: data['storeId'],
+            creditLimit: data['creditLimit'] != null ? (data['creditLimit'] as num).toDouble() : null,
+          );
+        }).toList();
+      }
+    } catch (e) {
+      print('Error getting all customers: $e');
+    }
+    return [];
   }
 
   Future<void> updateCustomer(Customer customer) async {
     await initialize();
-    await _firestore.collection('customers').doc(customer.id).update({
+    await _database.child('customers').child(customer.id).update({
+      'id': customer.id,
       'name': customer.name,
       'storeId': customer.storeId,
       'creditLimit': customer.creditLimit,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
     });
   }
 
   Future<void> deleteCustomer(String customerId) async {
     await initialize();
-    await _firestore.collection('customers').doc(customerId).delete();
+    await _database.child('customers').child(customerId).remove();
     
     // Delete all credits for this customer
-    final creditsSnapshot = await _firestore
-        .collection('credits')
-        .where('customerId', isEqualTo: customerId)
-        .get();
-    
-    for (final doc in creditsSnapshot.docs) {
-      await doc.reference.delete();
+    try {
+      final creditsSnapshot = await _database.child('credits').get();
+      if (creditsSnapshot.exists && creditsSnapshot.value != null) {
+        final credits = Map<String, dynamic>.from(creditsSnapshot.value as Map);
+        for (final entry in credits.entries) {
+          final creditData = Map<String, dynamic>.from(entry.value as Map);
+          if (creditData['customerId'] == customerId) {
+            await _database.child('credits').child(entry.key).remove();
+            // Also delete payments for this credit
+            await _database.child('payments').orderByChild('creditId').equalTo(entry.key).get().then((paymentsSnapshot) {
+              if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
+                final payments = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
+                for (final paymentKey in payments.keys) {
+                  _database.child('payments').child(paymentKey).remove();
+                }
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print('Error deleting customer credits: $e');
     }
   }
 
   // Credit operations
   Future<void> saveCredit(CreditEntry credit) async {
     await initialize();
-    await _firestore.collection('credits').doc(credit.id).set({
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _database.child('credits').child(credit.id).set({
+      'id': credit.id,
       'customerId': credit.customerId,
       'storeId': credit.storeId,
       'item': credit.item,
       'amount': credit.amount,
-      'date': credit.date,
-      'dueDate': credit.dueDate,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'date': _toTimestamp(credit.date),
+      'dueDate': _toTimestamp(credit.dueDate),
+      'createdAt': now,
+      'updatedAt': now,
     });
 
     // Save payments
     for (final payment in credit.payments) {
-      await _firestore.collection('payments').doc(payment.id).set({
+      await _database.child('payments').child(payment.id).set({
+        'id': payment.id,
         'creditId': credit.id,
         'amount': payment.amount,
-        'date': payment.date,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'date': _toTimestamp(payment.date),
+        'createdAt': now,
+        'updatedAt': now,
       });
     }
   }
@@ -201,100 +263,146 @@ class FirebaseService {
   Future<CreditEntry?> getCredit(String creditId) async {
     await initialize();
     try {
-      final doc = await _firestore.collection('credits').doc(creditId).get();
-      if (!doc.exists) return null;
-      return _creditFromSnapshot(doc);
+      final snapshot = await _database.child('credits').child(creditId).get();
+      if (snapshot.exists && snapshot.value != null) {
+        final data = Map<String, dynamic>.from(snapshot.value as Map);
+        
+        // Get payments for this credit
+        final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(creditId).get();
+        final List<Payment> payments = [];
+        if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
+          final paymentsData = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
+          for (final entry in paymentsData.entries) {
+            final paymentData = Map<String, dynamic>.from(entry.value as Map);
+            payments.add(Payment(
+              id: entry.key,
+              amount: (paymentData['amount'] as num).toDouble(),
+              date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
+            ));
+          }
+        }
+
+        final credit = CreditEntry(
+          id: creditId,
+          customerId: data['customerId'] ?? '',
+          storeId: data['storeId'],
+          item: data['item'] ?? '',
+          amount: (data['amount'] as num).toDouble(),
+          date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
+          dueDate: _fromTimestamp(data['dueDate'] as int?),
+        );
+        
+        credit.payments.addAll(payments);
+        return credit;
+      }
     } catch (e) {
-      return null;
+      print('Error getting credit: $e');
     }
+    return null;
   }
 
   Future<List<CreditEntry>> getAllCredits() async {
     await initialize();
-    final snapshot = await _firestore.collection('credits').get();
-    List<CreditEntry> credits = [];
+    try {
+      final snapshot = await _database.child('credits').get();
+      if (snapshot.exists && snapshot.value != null) {
+        final credits = Map<String, dynamic>.from(snapshot.value as Map);
+        List<CreditEntry> creditList = [];
 
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-      
-      // Get payments for this credit
-      final paymentsSnapshot = await _firestore
-          .collection('payments')
-          .where('creditId', isEqualTo: doc.id)
-          .get();
-      
-      final payments = paymentsSnapshot.docs.map((paymentDoc) {
-        final paymentData = paymentDoc.data();
-        return Payment(
-          id: paymentDoc.id,
-          amount: paymentData['amount'],
-          date: (paymentData['date'] as Timestamp).toDate(),
-        );
-      }).toList();
+        for (final entry in credits.entries) {
+          final data = Map<String, dynamic>.from(entry.value as Map);
+          
+          // Get payments for this credit
+          final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(entry.key).get();
+          final List<Payment> payments = [];
+          if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
+            final paymentsData = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
+            for (final paymentEntry in paymentsData.entries) {
+              final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
+              payments.add(Payment(
+                id: paymentEntry.key,
+                amount: (paymentData['amount'] as num).toDouble(),
+                date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
+              ));
+            }
+          }
 
-      final credit = CreditEntry(
-        id: doc.id,
-        customerId: data['customerId'],
-        storeId: data['storeId'],
-        item: data['item'],
-        amount: data['amount'],
-        date: (data['date'] as Timestamp).toDate(),
-        dueDate: data['dueDate'] != null ? (data['dueDate'] as Timestamp).toDate() : null,
-      );
-      
-      credit.payments.addAll(payments);
-      credits.add(credit);
+          final credit = CreditEntry(
+            id: entry.key,
+            customerId: data['customerId'] ?? '',
+            storeId: data['storeId'],
+            item: data['item'] ?? '',
+            amount: (data['amount'] as num).toDouble(),
+            date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
+            dueDate: _fromTimestamp(data['dueDate'] as int?),
+          );
+          
+          credit.payments.addAll(payments);
+          creditList.add(credit);
+        }
+
+        return creditList;
+      }
+    } catch (e) {
+      print('Error getting all credits: $e');
     }
-
-    return credits;
+    return [];
   }
 
   Future<void> updateCredit(CreditEntry credit) async {
     await initialize();
-    await _firestore.collection('credits').doc(credit.id).update({
+    await _database.child('credits').child(credit.id).update({
+      'id': credit.id,
       'customerId': credit.customerId,
       'storeId': credit.storeId,
       'item': credit.item,
       'amount': credit.amount,
-      'date': credit.date,
-      'dueDate': credit.dueDate,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'date': _toTimestamp(credit.date),
+      'dueDate': _toTimestamp(credit.dueDate),
+      'updatedAt': DateTime.now().millisecondsSinceEpoch,
     });
 
-    // Update payments
-    await _firestore
-        .collection('payments')
-        .where('creditId', isEqualTo: credit.id)
-        .get()
-        .then((snapshot) async {
-      for (final doc in snapshot.docs) {
-        await doc.reference.delete();
+    // Delete existing payments and add new ones
+    try {
+      final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(credit.id).get();
+      if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
+        final payments = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
+        for (final paymentKey in payments.keys) {
+          await _database.child('payments').child(paymentKey).remove();
+        }
       }
-    });
+    } catch (e) {
+      print('Error deleting old payments: $e');
+    }
 
+    final now = DateTime.now().millisecondsSinceEpoch;
     for (final payment in credit.payments) {
-      await _firestore.collection('payments').doc(payment.id).set({
+      await _database.child('payments').child(payment.id).set({
+        'id': payment.id,
         'creditId': credit.id,
         'amount': payment.amount,
-        'date': payment.date,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'date': _toTimestamp(payment.date),
+        'createdAt': now,
+        'updatedAt': now,
       });
     }
   }
 
   Future<void> deleteCredit(String creditId) async {
     await initialize();
-    await _firestore.collection('credits').doc(creditId).delete();
+    await _database.child('credits').child(creditId).remove();
     
     // Delete payments
-    final paymentsSnapshot = await _firestore
-        .collection('payments')
-        .where('creditId', isEqualTo: creditId)
-        .get();
-    
-    for (final doc in paymentsSnapshot.docs) {
-      await doc.reference.delete();
+    try {
+      final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(creditId).get();
+      if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
+        final payments = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
+        for (final paymentKey in payments.keys) {
+          await _database.child('payments').child(paymentKey).remove();
+        }
+      }
+    } catch (e) {
+      print('Error deleting payments: $e');
     }
   }
 
@@ -302,32 +410,36 @@ class FirebaseService {
   Future<Payment?> getPayment(String paymentId) async {
     await initialize();
     try {
-      final doc = await _firestore.collection('payments').doc(paymentId).get();
-      if (!doc.exists) return null;
-      final data = doc.data()!;
-      return Payment(
-        id: doc.id,
-        amount: data['amount'],
-        date: (data['date'] as Timestamp).toDate(),
-      );
+      final snapshot = await _database.child('payments').child(paymentId).get();
+      if (snapshot.exists && snapshot.value != null) {
+        final data = Map<String, dynamic>.from(snapshot.value as Map);
+        return Payment(
+          id: paymentId,
+          amount: (data['amount'] as num).toDouble(),
+          date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
+        );
+      }
     } catch (e) {
-      return null;
+      print('Error getting payment: $e');
     }
+    return null;
   }
 
   Future<void> savePayment(Payment payment, String creditId) async {
     await initialize();
-    await _firestore.collection('payments').doc(payment.id).set({
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _database.child('payments').child(payment.id).set({
+      'id': payment.id,
       'creditId': creditId,
       'amount': payment.amount,
-      'date': payment.date,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'date': _toTimestamp(payment.date),
+      'createdAt': now,
+      'updatedAt': now,
     });
 
     // Touch parent credit so listeners receive updates
-    await _firestore.collection('credits').doc(creditId).update({
-      'updatedAt': FieldValue.serverTimestamp(),
+    await _database.child('credits').child(creditId).update({
+      'updatedAt': now,
     });
   }
 
@@ -349,102 +461,178 @@ class FirebaseService {
   Future<void> clearAllData() async {
     await initialize();
     
-    // Delete all documents in collections
-    final collections = ['users', 'customers', 'credits', 'payments'];
-    
-    for (final collectionName in collections) {
-      final snapshot = await _firestore.collection(collectionName).get();
-      for (final doc in snapshot.docs) {
-        await doc.reference.delete();
-      }
-    }
+    // Delete all data in Realtime Database
+    await _database.child('users').remove();
+    await _database.child('customers').remove();
+    await _database.child('credits').remove();
+    await _database.child('payments').remove();
+    await _database.child('notifications').remove();
   }
 
   // Filtered fetch helpers
   Future<List<Customer>> getCustomersForStore(String storeId) async {
     await initialize();
-    final snapshot = await _firestore
-        .collection('customers')
-        .where('storeId', isEqualTo: storeId)
-        .get();
-    return snapshot.docs.map((doc) {
-      final data = doc.data();
-      return Customer(
-        id: doc.id,
-        name: data['name'],
-        storeId: data['storeId'],
-        creditLimit: data['creditLimit'] != null ? (data['creditLimit'] as num).toDouble() : null,
-      );
-    }).toList();
+    try {
+      final snapshot = await _database.child('customers').get();
+      if (snapshot.exists && snapshot.value != null) {
+        final customers = Map<String, dynamic>.from(snapshot.value as Map);
+        return customers.entries
+            .where((entry) {
+              final data = Map<String, dynamic>.from(entry.value as Map);
+              return data['storeId'] == storeId;
+            })
+            .map((entry) {
+              final data = Map<String, dynamic>.from(entry.value as Map);
+              return Customer(
+                id: entry.key,
+                name: data['name'] ?? '',
+                storeId: data['storeId'],
+                creditLimit: data['creditLimit'] != null ? (data['creditLimit'] as num).toDouble() : null,
+              );
+            })
+            .toList();
+      }
+    } catch (e) {
+      print('Error getting customers for store: $e');
+    }
+    return [];
   }
 
   Future<List<CreditEntry>> getCreditsForStore(String storeId) async {
     await initialize();
-    final snapshot = await _firestore
-        .collection('credits')
-        .where('storeId', isEqualTo: storeId)
-        .get();
-    return Future.wait(snapshot.docs.map(_creditFromSnapshot));
+    try {
+      final snapshot = await _database.child('credits').get();
+      if (snapshot.exists && snapshot.value != null) {
+        final credits = Map<String, dynamic>.from(snapshot.value as Map);
+        List<CreditEntry> creditList = [];
+
+        for (final entry in credits.entries) {
+          final data = Map<String, dynamic>.from(entry.value as Map);
+          if (data['storeId'] == storeId) {
+            // Get payments for this credit
+            final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(entry.key).get();
+            final List<Payment> payments = [];
+            if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
+              final paymentsData = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
+              for (final paymentEntry in paymentsData.entries) {
+                final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
+                payments.add(Payment(
+                  id: paymentEntry.key,
+                  amount: (paymentData['amount'] as num).toDouble(),
+                  date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
+                ));
+              }
+            }
+
+            final credit = CreditEntry(
+              id: entry.key,
+              customerId: data['customerId'] ?? '',
+              storeId: data['storeId'],
+              item: data['item'] ?? '',
+              amount: (data['amount'] as num).toDouble(),
+              date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
+              dueDate: _fromTimestamp(data['dueDate'] as int?),
+            );
+            
+            credit.payments.addAll(payments);
+            creditList.add(credit);
+          }
+        }
+
+        return creditList;
+      }
+    } catch (e) {
+      print('Error getting credits for store: $e');
+    }
+    return [];
   }
 
   Future<List<CreditEntry>> getCreditsForCustomer(String customerId) async {
     await initialize();
-    final snapshot = await _firestore
-        .collection('credits')
-        .where('customerId', isEqualTo: customerId)
-        .get();
-    return Future.wait(snapshot.docs.map(_creditFromSnapshot));
+    try {
+      final snapshot = await _database.child('credits').get();
+      if (snapshot.exists && snapshot.value != null) {
+        final credits = Map<String, dynamic>.from(snapshot.value as Map);
+        List<CreditEntry> creditList = [];
+
+        for (final entry in credits.entries) {
+          final data = Map<String, dynamic>.from(entry.value as Map);
+          if (data['customerId'] == customerId) {
+            // Get payments for this credit
+            final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(entry.key).get();
+            final List<Payment> payments = [];
+            if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
+              final paymentsData = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
+              for (final paymentEntry in paymentsData.entries) {
+                final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
+                payments.add(Payment(
+                  id: paymentEntry.key,
+                  amount: (paymentData['amount'] as num).toDouble(),
+                  date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
+                ));
+              }
+            }
+
+            final credit = CreditEntry(
+              id: entry.key,
+              customerId: data['customerId'] ?? '',
+              storeId: data['storeId'],
+              item: data['item'] ?? '',
+              amount: (data['amount'] as num).toDouble(),
+              date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
+              dueDate: _fromTimestamp(data['dueDate'] as int?),
+            );
+            
+            credit.payments.addAll(payments);
+            creditList.add(credit);
+          }
+        }
+
+        return creditList;
+      }
+    } catch (e) {
+      print('Error getting credits for customer: $e');
+    }
+    return [];
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> listenToCreditsForCustomer(String customerId) {
-    return _firestore
-        .collection('credits')
-        .where('customerId', isEqualTo: customerId)
-        .snapshots();
+  // Realtime Database listeners (replacing Firestore streams)
+  Stream<DatabaseEvent> listenToCreditsForCustomer(String customerId) {
+    return _database.child('credits').orderByChild('customerId').equalTo(customerId).onValue;
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> listenToCreditsForStore(String storeId) {
-    return _firestore
-        .collection('credits')
-        .where('storeId', isEqualTo: storeId)
-        .snapshots();
+  Stream<DatabaseEvent> listenToCreditsForStore(String storeId) {
+    return _database.child('credits').orderByChild('storeId').equalTo(storeId).onValue;
   }
 
-  Future<CreditEntry> _creditFromSnapshot(DocumentSnapshot<Map<String, dynamic>> doc) async {
-    final data = doc.data()!;
-    final paymentsSnapshot = await _firestore
-        .collection('payments')
-        .where('creditId', isEqualTo: doc.id)
-        .get();
+  // Notification operations for cross-device notifications
+  Future<void> saveNotification({
+    required String userId,
+    required String title,
+    required String message,
+    required String type,
+    Map<String, dynamic>? data,
+  }) async {
+    await initialize();
+    final notificationId = DateTime.now().millisecondsSinceEpoch.toString();
+    await _database.child('notifications').child(userId).child(notificationId).set({
+      'title': title,
+      'message': message,
+      'type': type,
+      'data': data,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'read': false,
+    });
+  }
 
-    final credit = CreditEntry(
-      id: doc.id,
-      customerId: data['customerId'],
-      storeId: data['storeId'],
-      item: data['item'],
-      amount: (data['amount'] as num).toDouble(),
-      date: (data['date'] is Timestamp)
-          ? (data['date'] as Timestamp).toDate()
-          : (data['date'] as DateTime),
-      dueDate: data['dueDate'] == null
-          ? null
-          : ((data['dueDate'] is Timestamp)
-              ? (data['dueDate'] as Timestamp).toDate()
-              : (data['dueDate'] as DateTime)),
-    );
+  Stream<DatabaseEvent> listenToNotifications(String userId) {
+    return _database.child('notifications').child(userId).orderByChild('createdAt').onValue;
+  }
 
-    final payments = paymentsSnapshot.docs.map((paymentDoc) {
-      final paymentData = paymentDoc.data();
-      return Payment(
-        id: paymentDoc.id,
-        amount: (paymentData['amount'] as num).toDouble(),
-        date: (paymentData['date'] is Timestamp)
-            ? (paymentData['date'] as Timestamp).toDate()
-            : (paymentData['date'] as DateTime),
-      );
-    }).toList();
-
-    credit.payments.addAll(payments);
-    return credit;
+  Future<void> markNotificationAsRead(String userId, String notificationId) async {
+    await initialize();
+    await _database.child('notifications').child(userId).child(notificationId).update({
+      'read': true,
+    });
   }
 }

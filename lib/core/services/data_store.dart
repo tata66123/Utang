@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 import '../models/models.dart';
@@ -23,7 +23,7 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
   final SyncService _syncService = SyncService();
   final FirebaseService _firebaseService = FirebaseService();
   final ConnectivityService _connectivityService = ConnectivityService();
-  StreamSubscription? _creditSubscription;
+  StreamSubscription<DatabaseEvent>? _creditSubscription;
 
   // AuthServiceInterface implementation
   @override
@@ -101,6 +101,9 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     );
     
     await _dbHelper.insertUser(user);
+    
+    // Immediately sync user to Firebase
+    await _syncUserToFirebase(user);
     
     // If this is a customer, also create a corresponding Customer record
     if (role == UserRole.customer) {
@@ -231,7 +234,23 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
 
   Future<void> clearAllData() async {
     await _stopRealtimeSync();
+    
+    // Clear SQLite database
     await _dbHelper.clearAllData();
+    
+    // Clear Firebase database (if online)
+    try {
+      await _connectivityService.initialize();
+      if (_connectivityService.isOnline) {
+        await _firebaseService.initialize();
+        await _firebaseService.clearAllData();
+      }
+    } catch (e) {
+      print('Error clearing Firebase: $e');
+      // Continue even if Firebase clear fails - SQLite is already cleared
+    }
+    
+    // Clear in-memory state
     _state = AppState(
       customers: <Customer>[], 
       credits: <CreditEntry>[], 
@@ -317,6 +336,9 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     // Use insertOrReplace to handle existing customers gracefully
     await _dbHelper.insertOrReplaceCustomer(c);
     
+    // Immediately sync to Firebase
+    await _syncCustomerToFirebase(c);
+    
     // Only add to state if not already present
     if (!_state.customers.any((existing) => existing.id == c.id)) {
       _state.customers.add(c);
@@ -328,6 +350,10 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
 
   Future<void> updateCustomer(Customer customer) async {
     await _dbHelper.updateCustomer(customer);
+    
+    // Immediately sync to Firebase
+    await _syncCustomerToFirebase(customer);
+    
     final index = _state.customers.indexWhere((c) => c.id == customer.id);
     if (index != -1) {
       _state.customers[index] = customer;
@@ -435,6 +461,9 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
         // Update in database
         await _dbHelper.updateCredit(updatedCredit);
         
+        // Immediately sync to Firebase
+        await _syncCreditToFirebase(updatedCredit);
+        
         // Update in state
         final index = _state.credits.indexWhere((c) => c.id == existingCredit.id);
         if (index != -1) {
@@ -474,6 +503,10 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
       dueDate: dueDate,
     );
     await _dbHelper.insertCredit(e);
+    
+    // Immediately sync to Firebase
+    await _syncCreditToFirebase(e);
+    
     _state.credits.add(e);
     notifyListeners();
     return e;
@@ -485,6 +518,11 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     entry.payments.add(payment);
     await _dbHelper.insertPayment(payment, creditId);
     await _dbHelper.updateCredit(entry);
+    
+    // Immediately sync to Firebase
+    await _syncCreditToFirebase(entry);
+    await _syncPaymentToFirebase(payment, creditId);
+    
     notifyListeners();
   }
 
@@ -579,38 +617,52 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     }
   }
 
+  // Get customers who have previously been credited (for store owners)
+  List<Customer> getPreviouslyCreditedCustomers() {
+    if (_state.currentUser?.role != UserRole.storeOwner) {
+      return [];
+    }
+    
+    final String ownerId = _state.currentUser!.id;
+    final Set<String> creditedCustomerIds = _state.credits
+        .where((credit) => credit.storeId == ownerId)
+        .map((credit) => credit.customerId)
+        .toSet();
+    
+    return _state.customers
+        .where((customer) => creditedCustomerIds.contains(customer.id))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
   // Check if customer exists in database (Firebase + SQLite)
   Future<bool> customerExists(String username) async {
-    // First check in memory
-    final existingCustomer = findCustomerByUsername(username);
-    if (existingCustomer != null) {
-      return true;
-    }
-    
-    // Check in SQLite database
+    // Only check for existing CUSTOMERS, never create or infer from users
+    // 1) In-memory
+    final existingCustomer = findCustomerByUsername(username.trim());
+    if (existingCustomer != null) return true;
+
+    // 2) SQLite customers table
     try {
-      final user = await _dbHelper.getUserByUsername(username);
-      if (user != null) {
+      final allCustomers = await _dbHelper.getAllCustomers();
+      if (allCustomers.any((c) => c.name.toLowerCase() == username.trim().toLowerCase())) {
         return true;
       }
-    } catch (e) {
-      // User not found in SQLite
-    }
-    
-    // Check in Firebase if online
+    } catch (_) {}
+
+    // 3) Firebase customers for current store (if online)
     try {
       await _connectivityService.initialize();
-      if (_connectivityService.isOnline) {
+      if (_connectivityService.isOnline && _state.currentUser != null) {
         await _firebaseService.initialize();
-        final remoteUser = await _firebaseService.getUserByUsername(username);
-        if (remoteUser != null) {
+        final storeId = _state.currentUser!.role == UserRole.storeOwner ? _state.currentUser!.id : _state.currentUser!.id;
+        final remoteCustomers = await _firebaseService.getCustomersForStore(storeId);
+        if (remoteCustomers.any((c) => c.name.toLowerCase() == username.trim().toLowerCase())) {
           return true;
         }
       }
-    } catch (e) {
-      // Error checking Firebase, continue
-    }
-    
+    } catch (_) {}
+
     return false;
   }
 
@@ -653,6 +705,46 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     
     // Create new customer
     return await addCustomer(username);
+  }
+
+  // Resolve existing customer by name without creating anything
+  Future<Customer?> getCustomerByName(String name) async {
+    final trimmed = name.trim();
+    // In-memory
+    final inMem = findCustomerByUsername(trimmed);
+    if (inMem != null) return inMem;
+
+    // SQLite
+    try {
+      final all = await _dbHelper.getAllCustomers();
+      for (final c in all) {
+        if (c.name.toLowerCase() == trimmed.toLowerCase()) {
+          // Cache into memory
+          addCustomerToMemory(c);
+          return c;
+        }
+      }
+    } catch (_) {}
+
+    // Firebase (for current store)
+    try {
+      await _connectivityService.initialize();
+      if (_connectivityService.isOnline && _state.currentUser != null) {
+        await _firebaseService.initialize();
+        final storeId = _state.currentUser!.role == UserRole.storeOwner ? _state.currentUser!.id : _state.currentUser!.id;
+        final remoteCustomers = await _firebaseService.getCustomersForStore(storeId);
+        for (final c in remoteCustomers) {
+          if (c.name.toLowerCase() == trimmed.toLowerCase()) {
+            // Cache locally
+            await _dbHelper.insertOrReplaceCustomer(c, markAsSynced: true);
+            addCustomerToMemory(c);
+            return c;
+          }
+        }
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   Future<Customer?> getCustomerById(String id) async {
@@ -719,15 +811,33 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
       return;
     }
 
-    void handler(QuerySnapshot<Map<String, dynamic>> snapshot) async {
+    void handler(DatabaseEvent event) async {
+      if (event.snapshot.value == null) return;
+      
       bool changed = false;
-
-      for (final change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.removed) {
-          await _dbHelper.deleteCredit(change.doc.id);
-          changed = true;
-        } else {
-          final credit = await _firebaseService.getCredit(change.doc.id);
+      final creditsData = event.snapshot.value;
+      
+      if (creditsData is Map) {
+        // Handle removed credits (check if any local credits are not in Firebase)
+        final localCredits = await _dbHelper.getAllCredits();
+        final firebaseCreditIds = creditsData.keys.toSet();
+        
+        for (final localCredit in localCredits) {
+          if (user.role == UserRole.storeOwner && localCredit.storeId != user.id) continue;
+          if (user.role == UserRole.customer && localCredit.customerId != user.id) continue;
+          
+          if (!firebaseCreditIds.contains(localCredit.id)) {
+            // Credit was deleted in Firebase
+            await _dbHelper.deleteCredit(localCredit.id);
+            changed = true;
+          }
+        }
+        
+        // Handle added/updated credits
+        for (final entry in creditsData.entries) {
+          final creditId = entry.key;
+          
+          final credit = await _firebaseService.getCredit(creditId);
           if (credit != null) {
             await _dbHelper.insertOrReplaceCredit(credit, markAsSynced: true);
             final customer = await _firebaseService.getCustomer(credit.customerId);
@@ -804,6 +914,67 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     if (!_state.customers.any((c) => c.id == customer.id)) {
       _state.customers.add(customer);
       notifyListeners();
+    }
+  }
+
+  // Helper methods to immediately sync to Firebase
+  Future<void> _syncUserToFirebase(User user) async {
+    try {
+      await _connectivityService.initialize();
+      if (_connectivityService.isOnline) {
+        await _firebaseService.initialize();
+        await _firebaseService.saveUser(user);
+        await _dbHelper.markAsSynced('users', user.id);
+      }
+    } catch (e) {
+      print('Error syncing user to Firebase: $e');
+      // Don't throw - allow app to continue working offline
+    }
+  }
+
+  Future<void> _syncCustomerToFirebase(Customer customer) async {
+    try {
+      await _connectivityService.initialize();
+      if (_connectivityService.isOnline) {
+        await _firebaseService.initialize();
+        await _firebaseService.saveCustomer(customer);
+        await _dbHelper.markAsSynced('customers', customer.id);
+      }
+    } catch (e) {
+      print('Error syncing customer to Firebase: $e');
+      // Don't throw - allow app to continue working offline
+    }
+  }
+
+  Future<void> _syncCreditToFirebase(CreditEntry credit) async {
+    try {
+      await _connectivityService.initialize();
+      if (_connectivityService.isOnline) {
+        await _firebaseService.initialize();
+        await _firebaseService.saveCredit(credit);
+        await _dbHelper.markAsSynced('credits', credit.id);
+        // Mark all payments as synced too
+        for (final payment in credit.payments) {
+          await _dbHelper.markAsSynced('payments', payment.id);
+        }
+      }
+    } catch (e) {
+      print('Error syncing credit to Firebase: $e');
+      // Don't throw - allow app to continue working offline
+    }
+  }
+
+  Future<void> _syncPaymentToFirebase(Payment payment, String creditId) async {
+    try {
+      await _connectivityService.initialize();
+      if (_connectivityService.isOnline) {
+        await _firebaseService.initialize();
+        await _firebaseService.savePayment(payment, creditId);
+        await _dbHelper.markAsSynced('payments', payment.id);
+      }
+    } catch (e) {
+      print('Error syncing payment to Firebase: $e');
+      // Don't throw - allow app to continue working offline
     }
   }
 }

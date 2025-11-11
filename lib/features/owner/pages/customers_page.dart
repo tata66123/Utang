@@ -16,7 +16,7 @@ class CustomersPage extends StatefulWidget {
 class _CustomersPageState extends State<CustomersPage> {
   final TextEditingController _searchController = TextEditingController();
   String? _expandedCustomerId;
-  TransactionFilter _selectedFilter = TransactionFilter.all;
+  final TransactionFilter _selectedFilter = TransactionFilter.all;
 
   @override
   void dispose() {

@@ -133,7 +133,7 @@ class CustomerCreditsPage extends StatelessWidget {
 
     Widget storeNameWidget = const Text('Unknown Store', style: TextStyle(fontSize: 12, color: Colors.grey));
     if (credit.storeId != null && credit.storeId!.isNotEmpty) {
-      Future<String> _getStoreName(String storeId) async {
+      Future<String> getStoreName(String storeId) async {
         final ds = DataStore.instance;
         // Check if it's the current user (store owner viewing their own store)
         if (ds.state.currentUser != null && ds.state.currentUser!.id == storeId) {
@@ -146,7 +146,7 @@ class CustomerCreditsPage extends StatelessWidget {
         return 'Unknown Store';
       }
       storeNameWidget = FutureBuilder<String>(
-        future: _getStoreName(credit.storeId!),
+        future: getStoreName(credit.storeId!),
         builder: (context, snapshot) {
           final storeName = snapshot.hasData && snapshot.data != null 
               ? snapshot.data! 
