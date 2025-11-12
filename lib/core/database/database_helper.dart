@@ -278,6 +278,18 @@ class DatabaseHelper {
     return List.generate(maps.length, (i) => Customer.fromJson(maps[i]));
   }
 
+  Future<Customer?> getCustomerById(String customerId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'customers',
+      where: 'id = ?',
+      whereArgs: [customerId],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return Customer.fromJson(maps[0]);
+  }
+
   Future<void> updateCustomer(Customer customer) async {
     final db = await database;
     await db.update(
@@ -420,6 +432,36 @@ class DatabaseHelper {
     return credits;
   }
 
+  Future<List<CreditEntry>> getCreditsByCustomerId(String customerId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> creditMaps = await db.query(
+      'credits',
+      where: 'customerId = ?',
+      whereArgs: [customerId],
+    );
+    List<CreditEntry> credits = [];
+    for (final creditMap in creditMaps) {
+      final List<Map<String, dynamic>> paymentMaps = await db.query(
+        'payments',
+        where: 'creditId = ?',
+        whereArgs: [creditMap['id']],
+      );
+      final List<Payment> payments = paymentMaps.map((map) => Payment.fromJson(map)).toList();
+      final credit = CreditEntry(
+        id: creditMap['id'],
+        customerId: creditMap['customerId'],
+        storeId: creditMap['storeId'],
+        item: creditMap['item'],
+        amount: creditMap['amount'],
+        date: DateTime.parse(creditMap['date']),
+        dueDate: creditMap['dueDate'] != null ? DateTime.parse(creditMap['dueDate']) : null,
+      );
+      credit.payments.addAll(payments);
+      credits.add(credit);
+    }
+    return credits;
+  }
+
   Future<void> updateCredit(CreditEntry credit) async {
     final db = await database;
     await db.update(
@@ -502,6 +544,118 @@ class DatabaseHelper {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query('sync_status', limit: 1);
     return maps.isEmpty ? null : maps.first;
+  }
+
+  // Clear data that doesn't belong to the current user (for data isolation)
+  Future<void> clearDataForOtherStores(String currentStoreId) async {
+    final db = await database;
+    
+    // First, get all credit IDs that belong to this store (before deleting)
+    final validCreditMaps = await db.query(
+      'credits',
+      columns: ['id'],
+      where: 'storeId = ?',
+      whereArgs: [currentStoreId],
+    );
+    final Set<String> validCreditIds = validCreditMaps.map((m) => m['id'] as String).toSet();
+    
+    // Get all credit customer IDs for this store
+    final creditMaps = await db.query(
+      'credits',
+      columns: ['customerId'],
+      where: 'storeId = ?',
+      whereArgs: [currentStoreId],
+    );
+    final Set<String> validCustomerIds = creditMaps.map((m) => m['customerId'] as String).toSet();
+    
+    // Delete customers that:
+    // 1. Have a storeId that's not the current store
+    // NOTE: We keep customers with null storeId even if they don't have credits yet,
+    // because they might be customers created by customers that haven't received credits yet
+    final allCustomers = await db.query('customers');
+    final List<String> customersToDelete = [];
+    
+    for (final customer in allCustomers) {
+      final customerStoreId = customer['storeId'] as String?;
+      final customerId = customer['id'] as String;
+      
+      if (customerStoreId != null && customerStoreId != currentStoreId) {
+        // Customer belongs to another store - delete
+        customersToDelete.add(customerId);
+      }
+      // Don't delete customers with null storeId - they might be customers created by customers
+      // They will be visible to store owners when they search/add credit
+    }
+    
+    // Delete customers that don't belong
+    if (customersToDelete.isNotEmpty) {
+      final placeholders = customersToDelete.map((_) => '?').join(',');
+      await db.delete(
+        'customers',
+        where: 'id IN ($placeholders)',
+        whereArgs: customersToDelete,
+      );
+    }
+    
+    // Delete credits that don't belong to this store
+    await db.delete(
+      'credits',
+      where: 'storeId != ? OR (storeId IS NULL)',
+      whereArgs: [currentStoreId],
+    );
+    
+    // Delete payments for credits that were deleted (not in validCreditIds)
+    if (validCreditIds.isNotEmpty) {
+      final placeholders = validCreditIds.map((_) => '?').join(',');
+      await db.delete(
+        'payments',
+        where: 'creditId NOT IN ($placeholders)',
+        whereArgs: validCreditIds.toList(),
+      );
+    } else {
+      // No valid credits left, delete all payments
+      await db.delete('payments');
+    }
+  }
+
+  Future<void> clearDataForOtherCustomers(String currentCustomerId) async {
+    final db = await database;
+    
+    // First, get all credit IDs that belong to this customer (before deleting)
+    final validCreditMaps = await db.query(
+      'credits',
+      columns: ['id'],
+      where: 'customerId = ?',
+      whereArgs: [currentCustomerId],
+    );
+    final Set<String> validCreditIds = validCreditMaps.map((m) => m['id'] as String).toSet();
+    
+    // Delete customers that aren't this customer
+    await db.delete(
+      'customers',
+      where: 'id != ?',
+      whereArgs: [currentCustomerId],
+    );
+    
+    // Delete credits that don't belong to this customer
+    await db.delete(
+      'credits',
+      where: 'customerId != ?',
+      whereArgs: [currentCustomerId],
+    );
+    
+    // Delete payments for credits that were deleted (not in validCreditIds)
+    if (validCreditIds.isNotEmpty) {
+      final placeholders = validCreditIds.map((_) => '?').join(',');
+      await db.delete(
+        'payments',
+        where: 'creditId NOT IN ($placeholders)',
+        whereArgs: validCreditIds.toList(),
+      );
+    } else {
+      // No valid credits left, delete all payments
+      await db.delete('payments');
+    }
   }
 
   Future<void> clearAllData() async {

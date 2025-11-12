@@ -215,14 +215,10 @@ class FirebaseService {
           if (creditData['customerId'] == customerId) {
             await _database.child('credits').child(entry.key).remove();
             // Also delete payments for this credit
-            await _database.child('payments').orderByChild('creditId').equalTo(entry.key).get().then((paymentsSnapshot) {
-              if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
-                final payments = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
-                for (final paymentKey in payments.keys) {
-                  _database.child('payments').child(paymentKey).remove();
-                }
-              }
-            });
+            final payments = await _getPaymentsForCredit(entry.key);
+            for (final payment in payments) {
+              await _database.child('payments').child(payment.id).remove();
+            }
           }
         }
       }
@@ -260,6 +256,26 @@ class FirebaseService {
     }
   }
 
+  // Helper method to get payments for a credit (avoids index requirement)
+  Future<List<Payment>> _getPaymentsForCredit(String creditId) async {
+    final allPaymentsSnapshot = await _database.child('payments').get();
+    final List<Payment> payments = [];
+    if (allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
+      final allPayments = Map<String, dynamic>.from(allPaymentsSnapshot.value as Map);
+      for (final entry in allPayments.entries) {
+        final paymentData = Map<String, dynamic>.from(entry.value as Map);
+        if (paymentData['creditId'] == creditId) {
+          payments.add(Payment(
+            id: entry.key,
+            amount: (paymentData['amount'] as num).toDouble(),
+            date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
+          ));
+        }
+      }
+    }
+    return payments;
+  }
+
   Future<CreditEntry?> getCredit(String creditId) async {
     await initialize();
     try {
@@ -268,19 +284,7 @@ class FirebaseService {
         final data = Map<String, dynamic>.from(snapshot.value as Map);
         
         // Get payments for this credit
-        final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(creditId).get();
-        final List<Payment> payments = [];
-        if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
-          final paymentsData = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
-          for (final entry in paymentsData.entries) {
-            final paymentData = Map<String, dynamic>.from(entry.value as Map);
-            payments.add(Payment(
-              id: entry.key,
-              amount: (paymentData['amount'] as num).toDouble(),
-              date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
-            ));
-          }
-        }
+        final payments = await _getPaymentsForCredit(creditId);
 
         final credit = CreditEntry(
           id: creditId,
@@ -309,23 +313,31 @@ class FirebaseService {
         final credits = Map<String, dynamic>.from(snapshot.value as Map);
         List<CreditEntry> creditList = [];
 
+        // Fetch all payments once to avoid multiple queries
+        final allPaymentsSnapshot = await _database.child('payments').get();
+        final Map<String, List<Payment>> paymentsByCreditId = {};
+        if (allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
+          final allPayments = Map<String, dynamic>.from(allPaymentsSnapshot.value as Map);
+          for (final paymentEntry in allPayments.entries) {
+            final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
+            final paymentCreditId = paymentData['creditId'] as String?;
+            if (paymentCreditId != null) {
+              paymentsByCreditId.putIfAbsent(paymentCreditId, () => []).add(
+                Payment(
+                  id: paymentEntry.key,
+                  amount: (paymentData['amount'] as num).toDouble(),
+                  date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
+                )
+              );
+            }
+          }
+        }
+
         for (final entry in credits.entries) {
           final data = Map<String, dynamic>.from(entry.value as Map);
           
-          // Get payments for this credit
-          final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(entry.key).get();
-          final List<Payment> payments = [];
-          if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
-            final paymentsData = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
-            for (final paymentEntry in paymentsData.entries) {
-              final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
-              payments.add(Payment(
-                id: paymentEntry.key,
-                amount: (paymentData['amount'] as num).toDouble(),
-                date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
-              ));
-            }
-          }
+          // Get payments for this credit from the pre-fetched map
+          final payments = paymentsByCreditId[entry.key] ?? [];
 
           final credit = CreditEntry(
             id: entry.key,
@@ -364,12 +376,9 @@ class FirebaseService {
 
     // Delete existing payments and add new ones
     try {
-      final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(credit.id).get();
-      if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
-        final payments = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
-        for (final paymentKey in payments.keys) {
-          await _database.child('payments').child(paymentKey).remove();
-        }
+      final payments = await _getPaymentsForCredit(credit.id);
+      for (final payment in payments) {
+        await _database.child('payments').child(payment.id).remove();
       }
     } catch (e) {
       print('Error deleting old payments: $e');
@@ -394,12 +403,9 @@ class FirebaseService {
     
     // Delete payments
     try {
-      final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(creditId).get();
-      if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
-        final payments = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
-        for (final paymentKey in payments.keys) {
-          await _database.child('payments').child(paymentKey).remove();
-        }
+      final payments = await _getPaymentsForCredit(creditId);
+      for (final payment in payments) {
+        await _database.child('payments').child(payment.id).remove();
       }
     } catch (e) {
       print('Error deleting payments: $e');
@@ -506,23 +512,31 @@ class FirebaseService {
         final credits = Map<String, dynamic>.from(snapshot.value as Map);
         List<CreditEntry> creditList = [];
 
-        for (final entry in credits.entries) {
-          final data = Map<String, dynamic>.from(entry.value as Map);
-          if (data['storeId'] == storeId) {
-            // Get payments for this credit
-            final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(entry.key).get();
-            final List<Payment> payments = [];
-            if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
-              final paymentsData = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
-              for (final paymentEntry in paymentsData.entries) {
-                final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
-                payments.add(Payment(
+        // Fetch all payments once to avoid multiple queries
+        final allPaymentsSnapshot = await _database.child('payments').get();
+        final Map<String, List<Payment>> paymentsByCreditId = {};
+        if (allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
+          final allPayments = Map<String, dynamic>.from(allPaymentsSnapshot.value as Map);
+          for (final paymentEntry in allPayments.entries) {
+            final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
+            final paymentCreditId = paymentData['creditId'] as String?;
+            if (paymentCreditId != null) {
+              paymentsByCreditId.putIfAbsent(paymentCreditId, () => []).add(
+                Payment(
                   id: paymentEntry.key,
                   amount: (paymentData['amount'] as num).toDouble(),
                   date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
-                ));
-              }
+                )
+              );
             }
+          }
+        }
+
+        for (final entry in credits.entries) {
+          final data = Map<String, dynamic>.from(entry.value as Map);
+          if (data['storeId'] == storeId) {
+            // Get payments for this credit from the pre-fetched map
+            final payments = paymentsByCreditId[entry.key] ?? [];
 
             final credit = CreditEntry(
               id: entry.key,
@@ -555,24 +569,30 @@ class FirebaseService {
         final credits = Map<String, dynamic>.from(snapshot.value as Map);
         List<CreditEntry> creditList = [];
 
-        for (final entry in credits.entries) {
-          final data = Map<String, dynamic>.from(entry.value as Map);
-          if (data['customerId'] == customerId) {
-            // Get payments for this credit
-            final paymentsSnapshot = await _database.child('payments').orderByChild('creditId').equalTo(entry.key).get();
-            final List<Payment> payments = [];
-            if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
-              final paymentsData = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
-              for (final paymentEntry in paymentsData.entries) {
-                final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
-                payments.add(Payment(
+        // Fetch all payments once (avoiding orderByChild query that requires index)
+        final allPaymentsSnapshot = await _database.child('payments').get();
+        final Map<String, List<Payment>> paymentsByCreditId = {};
+        
+        if (allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
+          final allPayments = Map<String, dynamic>.from(allPaymentsSnapshot.value as Map);
+          for (final paymentEntry in allPayments.entries) {
+            final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
+            final paymentCreditId = paymentData['creditId'] as String?;
+            if (paymentCreditId != null) {
+              paymentsByCreditId.putIfAbsent(paymentCreditId, () => []).add(
+                Payment(
                   id: paymentEntry.key,
                   amount: (paymentData['amount'] as num).toDouble(),
                   date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
-                ));
-              }
+                )
+              );
             }
+          }
+        }
 
+        for (final entry in credits.entries) {
+          final data = Map<String, dynamic>.from(entry.value as Map);
+          if (data['customerId'] == customerId) {
             final credit = CreditEntry(
               id: entry.key,
               customerId: data['customerId'] ?? '',
@@ -583,7 +603,8 @@ class FirebaseService {
               dueDate: _fromTimestamp(data['dueDate'] as int?),
             );
             
-            credit.payments.addAll(payments);
+            // Add payments for this credit
+            credit.payments.addAll(paymentsByCreditId[entry.key] ?? []);
             creditList.add(credit);
           }
         }
@@ -603,6 +624,16 @@ class FirebaseService {
 
   Stream<DatabaseEvent> listenToCreditsForStore(String storeId) {
     return _database.child('credits').orderByChild('storeId').equalTo(storeId).onValue;
+  }
+
+  // Listen to customers for a specific store
+  Stream<DatabaseEvent> listenToCustomersForStore(String storeId) {
+    return _database.child('customers').orderByChild('storeId').equalTo(storeId).onValue;
+  }
+
+  // Listen to all customers (for store owners who need to see all customers)
+  Stream<DatabaseEvent> listenToAllCustomers() {
+    return _database.child('customers').onValue;
   }
 
   // Notification operations for cross-device notifications
