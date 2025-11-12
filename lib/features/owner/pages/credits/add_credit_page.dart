@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/services/data_store.dart';
+import '../../../../core/services/connectivity_service.dart';
 
 class AddCreditPage extends StatefulWidget {
   final Customer? customer;
@@ -24,11 +25,12 @@ class _AddCreditPageState extends State<AddCreditPage> {
   
   // List to store multiple items
   final List<Map<String, dynamic>> _items = [
-    {'item': '', 'amount': ''}
+    {'item': '', 'quantity': '', 'unitPrice': ''}
   ];
   
   final List<TextEditingController> _itemControllers = [TextEditingController()];
-  final List<TextEditingController> _amountControllers = [TextEditingController()];
+  final List<TextEditingController> _quantityControllers = [TextEditingController()];
+  final List<TextEditingController> _unitPriceControllers = [TextEditingController()];
 
   DataStore get _store => DataStore.instance;
 
@@ -88,13 +90,16 @@ class _AddCreditPageState extends State<AddCreditPage> {
       // Reinitialize lists to a single empty row without disposing during this frame
       _items
         ..clear()
-        ..add({'item': '', 'amount': ''});
+        ..add({'item': '', 'quantity': '', 'unitPrice': ''});
 
       // Keep references new to avoid accessing disposed controllers in the same frame
       _itemControllers
         ..clear()
         ..add(TextEditingController());
-      _amountControllers
+      _quantityControllers
+        ..clear()
+        ..add(TextEditingController());
+      _unitPriceControllers
         ..clear()
         ..add(TextEditingController());
 
@@ -106,27 +111,45 @@ class _AddCreditPageState extends State<AddCreditPage> {
 
   void _addItem() {
     setState(() {
-      _items.add({'item': '', 'amount': ''});
+      _items.add({'item': '', 'quantity': '', 'unitPrice': ''});
       _itemControllers.add(TextEditingController());
-      _amountControllers.add(TextEditingController());
+      _quantityControllers.add(TextEditingController());
+      _unitPriceControllers.add(TextEditingController());
     });
   }
 
   void _removeItem(int index) {
     if (_items.length > 1) {
       final itemCtrl = _itemControllers[index];
-      final amtCtrl = _amountControllers[index];
+      final qtyCtrl = _quantityControllers[index];
+      final priceCtrl = _unitPriceControllers[index];
       setState(() {
         _items.removeAt(index);
         _itemControllers.removeAt(index);
-        _amountControllers.removeAt(index);
+        _quantityControllers.removeAt(index);
+        _unitPriceControllers.removeAt(index);
       });
       // Defer disposal to next frame to avoid use-after-dispose during rebuild
       WidgetsBinding.instance.addPostFrameCallback((_) {
         try { itemCtrl.dispose(); } catch (_) {}
-        try { amtCtrl.dispose(); } catch (_) {}
+        try { qtyCtrl.dispose(); } catch (_) {}
+        try { priceCtrl.dispose(); } catch (_) {}
       });
     }
+  }
+
+  double _calculateTotal(int index) {
+    final quantityText = _quantityControllers[index].text.trim();
+    final unitPriceText = _unitPriceControllers[index].text.trim();
+    
+    if (quantityText.isEmpty || unitPriceText.isEmpty) {
+      return 0.0;
+    }
+    
+    final quantity = int.tryParse(quantityText) ?? 0;
+    final unitPrice = double.tryParse(unitPriceText) ?? 0.0;
+    
+    return quantity * unitPrice;
   }
 
   Future<void> _pickDate() async {
@@ -238,10 +261,13 @@ class _AddCreditPageState extends State<AddCreditPage> {
         // Add each item as a separate credit (or update if exists)
         for (int i = 0; i < _items.length; i++) {
           final itemText = _itemControllers[i].text.trim();
-          final amountText = _amountControllers[i].text.trim();
+          final quantityText = _quantityControllers[i].text.trim();
+          final unitPriceText = _unitPriceControllers[i].text.trim();
           
-          if (itemText.isNotEmpty && amountText.isNotEmpty) {
-            final double amount = double.parse(amountText);
+          if (itemText.isNotEmpty && quantityText.isNotEmpty && unitPriceText.isNotEmpty) {
+            final int quantity = int.parse(quantityText);
+            final double unitPrice = double.parse(unitPriceText);
+            final double totalAmount = quantity * unitPrice;
             
             // Validate date is not in the future
             final now = DateTime.now();
@@ -259,9 +285,11 @@ class _AddCreditPageState extends State<AddCreditPage> {
               await _store.addOrUpdateCredit(
                 customerId: customer.id,
                 item: itemText,
-                amount: amount,
+                amount: totalAmount,
                 date: _selectedDate,
                 dueDate: _dueDate,
+                quantity: quantity,
+                unitPrice: unitPrice,
               );
             } catch (e) {
               // Handle credit limit exceeded error
@@ -305,8 +333,36 @@ class _AddCreditPageState extends State<AddCreditPage> {
 
         if (mounted) {
           _resetForm(clearCustomer: widget.customer == null);
+          
+          // Check connectivity status to show appropriate message
+          final connectivityService = ConnectivityService();
+          await connectivityService.initialize();
+          final isOnline = connectivityService.isOnline;
+          
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Credits added/updated successfully')),
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(
+                    isOnline ? Icons.check_circle : Icons.cloud_upload,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      isOnline 
+                        ? 'Credits added/updated successfully'
+                        : 'Credit added successfully. Will sync later when back online.',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: isOnline ? Colors.green : Colors.orange,
+              duration: Duration(seconds: isOnline ? 3 : 5),
+              behavior: SnackBarBehavior.floating,
+            ),
           );
         }
       } catch (e) {
@@ -325,7 +381,10 @@ class _AddCreditPageState extends State<AddCreditPage> {
     for (final controller in _itemControllers) {
       controller.dispose();
     }
-    for (final controller in _amountControllers) {
+    for (final controller in _quantityControllers) {
+      controller.dispose();
+    }
+    for (final controller in _unitPriceControllers) {
       controller.dispose();
     }
     _customerSearchController.dispose();
@@ -761,55 +820,81 @@ class _AddCreditPageState extends State<AddCreditPage> {
                       ...List.generate(_items.length, (index) {
                         return Column(
                           children: [
+                            // Item name
+                            TextFormField(
+                              controller: _itemControllers[index],
+                              decoration: InputDecoration(
+                                labelText: 'Item ${index + 1}',
+                                border: const OutlineInputBorder(),
+                                prefixIcon: const Icon(Icons.description),
+                              ),
+                              maxLines: 1,
+                              textInputAction: TextInputAction.next,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Please enter item description';
+                                }
+                                // Item name cannot start with a number
+                                final trimmedValue = value.trim();
+                                if (trimmedValue.isNotEmpty && RegExp(r'^[0-9]').hasMatch(trimmedValue)) {
+                                  return 'Item name cannot start with a number';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            // Quantity and Unit Price row
                             Row(
                               children: [
                                 Expanded(
-                                  flex: 2,
                                   child: TextFormField(
-                                    controller: _itemControllers[index],
-                                    decoration: InputDecoration(
-                                      labelText: 'Item ${index + 1}',
-                                      border: const OutlineInputBorder(),
-                                      prefixIcon: const Icon(Icons.description),
+                                    controller: _quantityControllers[index],
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Quantity',
+                                      border: OutlineInputBorder(),
+                                      prefixIcon: Icon(Icons.numbers),
                                     ),
-                                    maxLines: 1,
                                     textInputAction: TextInputAction.next,
                                     validator: (value) {
                                       if (value == null || value.trim().isEmpty) {
-                                        return 'Please enter item description';
+                                        return 'Enter quantity';
                                       }
-                                      // Item name cannot start with a number
-                                      final trimmedValue = value.trim();
-                                      if (trimmedValue.isNotEmpty && RegExp(r'^[0-9]').hasMatch(trimmedValue)) {
-                                        return 'Item name cannot start with a number';
+                                      final int? qty = int.tryParse(value);
+                                      if (qty == null || qty <= 0) {
+                                        return 'Quantity must be > 0';
                                       }
                                       return null;
                                     },
+                                    onChanged: (_) => setState(() {}), // Rebuild to update total
                                   ),
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: TextFormField(
-                                    controller: _amountControllers[index],
+                                    controller: _unitPriceControllers[index],
                                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                     decoration: const InputDecoration(
-                                      labelText: 'Amount',
+                                      labelText: 'Unit Price',
                                       border: OutlineInputBorder(),
                                       prefixText: '₱ ',
+                                      prefixIcon: Icon(Icons.attach_money),
                                     ),
+                                    textInputAction: TextInputAction.done,
                                     validator: (value) {
                                       if (value == null || value.trim().isEmpty) {
-                                        return 'Enter amount';
+                                        return 'Enter unit price';
                                       }
-                                      final double? amount = double.tryParse(value);
-                                      if (amount == null) {
-                                        return 'Invalid amount';
+                                      final double? price = double.tryParse(value);
+                                      if (price == null) {
+                                        return 'Invalid price';
                                       }
-                                      if (amount <= 0) {
-                                        return 'Amount must be > 0';
+                                      if (price <= 0) {
+                                        return 'Price must be > 0';
                                       }
                                       return null;
                                     },
+                                    onChanged: (_) => setState(() {}), // Rebuild to update total
                                   ),
                                 ),
                                 if (_items.length > 1)
@@ -820,7 +905,37 @@ class _AddCreditPageState extends State<AddCreditPage> {
                                   ),
                               ],
                             ),
-                            if (index < _items.length - 1) const SizedBox(height: 12),
+                            const SizedBox(height: 8),
+                            // Total Amount Display
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.blue.shade200),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Total Amount:',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  Text(
+                                    '₱${_calculateTotal(index).toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: Colors.blue.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (index < _items.length - 1) const SizedBox(height: 16),
                           ],
                         );
                       }),
@@ -954,7 +1069,7 @@ class _AddCreditPageState extends State<AddCreditPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Amount: ₱${credit.amount.toStringAsFixed(2)}',
+                  'Quantity: ${credit.quantity} × ₱${credit.effectiveUnitPrice.toStringAsFixed(2)} = ₱${credit.amount.toStringAsFixed(2)}',
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(

@@ -237,6 +237,8 @@ class FirebaseService {
       'storeId': credit.storeId,
       'item': credit.item,
       'amount': credit.amount,
+      'quantity': credit.quantity,
+      'unitPrice': credit.unitPrice,
       'date': _toTimestamp(credit.date),
       'dueDate': _toTimestamp(credit.dueDate),
       'createdAt': now,
@@ -292,6 +294,8 @@ class FirebaseService {
           storeId: data['storeId'],
           item: data['item'] ?? '',
           amount: (data['amount'] as num).toDouble(),
+          quantity: data['quantity'] != null ? (data['quantity'] as num).toInt() : 1,
+          unitPrice: data['unitPrice'] != null ? (data['unitPrice'] as num).toDouble() : null,
           date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
           dueDate: _fromTimestamp(data['dueDate'] as int?),
         );
@@ -345,6 +349,8 @@ class FirebaseService {
             storeId: data['storeId'],
             item: data['item'] ?? '',
             amount: (data['amount'] as num).toDouble(),
+            quantity: data['quantity'] != null ? (data['quantity'] as num).toInt() : 1,
+            unitPrice: data['unitPrice'] != null ? (data['unitPrice'] as num).toDouble() : null,
             date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
             dueDate: _fromTimestamp(data['dueDate'] as int?),
           );
@@ -369,6 +375,8 @@ class FirebaseService {
       'storeId': credit.storeId,
       'item': credit.item,
       'amount': credit.amount,
+      'quantity': credit.quantity,
+      'unitPrice': credit.unitPrice,
       'date': _toTimestamp(credit.date),
       'dueDate': _toTimestamp(credit.dueDate),
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
@@ -544,6 +552,8 @@ class FirebaseService {
               storeId: data['storeId'],
               item: data['item'] ?? '',
               amount: (data['amount'] as num).toDouble(),
+              quantity: data['quantity'] != null ? (data['quantity'] as num).toInt() : 1,
+              unitPrice: data['unitPrice'] != null ? (data['unitPrice'] as num).toDouble() : null,
               date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
               dueDate: _fromTimestamp(data['dueDate'] as int?),
             );
@@ -599,6 +609,8 @@ class FirebaseService {
               storeId: data['storeId'],
               item: data['item'] ?? '',
               amount: (data['amount'] as num).toDouble(),
+              quantity: data['quantity'] != null ? (data['quantity'] as num).toInt() : 1,
+              unitPrice: data['unitPrice'] != null ? (data['unitPrice'] as num).toDouble() : null,
               date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
               dueDate: _fromTimestamp(data['dueDate'] as int?),
             );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/models/models.dart';
 import '../../../core/services/data_store.dart';
+import '../../../core/services/connectivity_service.dart';
 
 enum PaymentType { partial, full }
 
@@ -129,6 +130,32 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
     });
   }
 
+  void _toggleSelectAllFull() {
+    setState(() {
+      final credits = _customerCredits;
+      final allSelected = credits.every((credit) => _selectedFullCreditIds.contains(credit.id));
+      
+      if (allSelected) {
+        // Deselect all
+        _selectedFullCreditIds.clear();
+      } else {
+        // Select all
+        _selectedFullCreditIds.clear();
+        for (final credit in credits) {
+          if (credit.balance > 0) {
+            _selectedFullCreditIds.add(credit.id);
+          }
+        }
+      }
+    });
+  }
+
+  bool get _areAllFullSelected {
+    final credits = _customerCredits;
+    if (credits.isEmpty) return false;
+    return credits.every((credit) => _selectedFullCreditIds.contains(credit.id));
+  }
+
   void _autoFillPartial(CreditEntry credit) {
     final controller = _partialControllerFor(credit.id);
     controller.text = credit.balance.toStringAsFixed(2);
@@ -173,9 +200,37 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
       await widget.store.refreshData();
 
       if (!mounted) return;
+      
+      // Check connectivity status to show appropriate message
+      final connectivityService = ConnectivityService();
+      await connectivityService.initialize();
+      final isOnline = connectivityService.isOnline;
+      
       Navigator.of(context).pop(true);
       messenger.showSnackBar(
-        const SnackBar(content: Text('Partial payments recorded successfully')),
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                isOnline ? Icons.check_circle : Icons.cloud_upload,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  isOnline 
+                    ? 'Partial payments recorded successfully'
+                    : 'Payments saved offline. They will sync automatically when you\'re back online.',
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: isOnline ? Colors.green : Colors.orange,
+          duration: Duration(seconds: isOnline ? 3 : 5),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -217,9 +272,37 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
       await widget.store.refreshData();
 
       if (!mounted) return;
+      
+      // Check connectivity status to show appropriate message
+      final connectivityService = ConnectivityService();
+      await connectivityService.initialize();
+      final isOnline = connectivityService.isOnline;
+      
       Navigator.of(context).pop(true);
       messenger.showSnackBar(
-        const SnackBar(content: Text('Full payments recorded successfully')),
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                isOnline ? Icons.check_circle : Icons.cloud_upload,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  isOnline 
+                    ? 'Full payments recorded successfully'
+                    : 'Payments saved offline. They will sync automatically when you\'re back online.',
+                  style: const TextStyle(fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: isOnline ? Colors.green : Colors.orange,
+          duration: Duration(seconds: isOnline ? 3 : 5),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -274,6 +357,7 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: Column(
@@ -285,13 +369,27 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                           fontWeight: FontWeight.w600,
                           fontSize: 16,
                         ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
                       ),
                       const SizedBox(height: 4),
-                      Text('Outstanding: ₱${credit.balance.toStringAsFixed(2)}',
-                          style: const TextStyle(fontWeight: FontWeight.w500)),
-                      Text('Total: ₱${credit.amount.toStringAsFixed(2)}'),
-                      Text('Paid: ₱${credit.paidAmount.toStringAsFixed(2)}'),
-                      Text('Date: ${_formatDate(credit.date)}'),
+                      Text(
+                        'Outstanding: ₱${credit.balance.toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'Total: ₱${credit.amount.toStringAsFixed(2)}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'Paid: ₱${credit.paidAmount.toStringAsFixed(2)}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'Date: ${_formatDate(credit.date)}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ),
                 ),
@@ -379,6 +477,7 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
                   child: Column(
@@ -390,13 +489,27 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                           fontWeight: FontWeight.w600,
                           fontSize: 16,
                         ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
                       ),
                       const SizedBox(height: 4),
-                      Text('Outstanding: ₱${credit.balance.toStringAsFixed(2)}',
-                          style: const TextStyle(fontWeight: FontWeight.w500)),
-                      Text('Total: ₱${credit.amount.toStringAsFixed(2)}'),
-                      Text('Paid: ₱${credit.paidAmount.toStringAsFixed(2)}'),
-                      Text('Date: ${_formatDate(credit.date)}'),
+                      Text(
+                        'Outstanding: ₱${credit.balance.toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'Total: ₱${credit.amount.toStringAsFixed(2)}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'Paid: ₱${credit.paidAmount.toStringAsFixed(2)}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'Date: ${_formatDate(credit.date)}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ],
                   ),
                 ),
@@ -438,13 +551,17 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade700,
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
+          const SizedBox(width: 8),
           Text(
             '₱${amount.toStringAsFixed(2)}',
             style: const TextStyle(
@@ -452,6 +569,7 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
               fontSize: 16,
               color: Colors.green,
             ),
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -503,6 +621,7 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
                           ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -511,13 +630,17 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                             color: Colors.grey.shade600,
                             fontSize: 14,
                           ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.of(context).pop(),
+                    constraints: const BoxConstraints(),
+                    padding: EdgeInsets.zero,
                   ),
                 ],
               ),
@@ -558,15 +681,41 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                         },
                       ),
                       const SizedBox(height: 24),
-                      Text(
-                        _paymentType == PaymentType.partial
-                            ? 'Select item(s) for partial payment'
-                            : 'Select item(s) to pay in full',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade700,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _paymentType == PaymentType.partial
+                                  ? 'Select item(s) for partial payment'
+                                  : 'Select item(s) to pay in full',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey.shade700,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (_paymentType == PaymentType.full && credits.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: TextButton.icon(
+                                onPressed: _toggleSelectAllFull,
+                                icon: Icon(
+                                  _areAllFullSelected ? Icons.check_box : Icons.check_box_outline_blank,
+                                  size: 18,
+                                ),
+                                label: Text(_areAllFullSelected ? 'Deselect All' : 'Select All'),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: Colors.green,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 12),
                       if (_paymentType == PaymentType.partial)
@@ -577,8 +726,12 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                       Row(
                         children: [
                           Expanded(
-                            child: Text('Payment Date: ${_formatDate(_paymentDate)}'),
+                            child: Text(
+                              'Payment Date: ${_formatDate(_paymentDate)}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           TextButton(
                             onPressed: _pickDate,
                             child: const Text('Change Date'),
@@ -597,29 +750,32 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                 border: Border(top: BorderSide(color: Colors.grey.shade300)),
               ),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  ElevatedButton(
-                    onPressed: _isProcessing
-                        ? null
-                        : (_paymentType == PaymentType.partial
-                            ? _confirmPartialPayments
-                            : _confirmFullPayments),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
+                  Flexible(
+                    child: ElevatedButton(
+                      onPressed: _isProcessing
+                          ? null
+                          : (_paymentType == PaymentType.partial
+                              ? _confirmPartialPayments
+                              : _confirmFullPayments),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: _isProcessing
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Text('Confirm'),
                     ),
-                    child: _isProcessing
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : const Text('Confirm'),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   TextButton(
                     onPressed: _isProcessing ? null : () => Navigator.of(context).pop(),
                     child: const Text('Cancel'),

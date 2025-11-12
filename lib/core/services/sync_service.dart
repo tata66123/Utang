@@ -192,6 +192,10 @@ class SyncService {
       
       print('Found ${unsyncedPayments.length} unsynced payments to upload');
       
+      // Track which credits need to be updated and which payments were just synced
+      final Set<String> creditsToUpdate = {};
+      final Map<String, List<Payment>> newlySyncedPayments = {}; // creditId -> list of newly synced payments
+      
       for (final paymentData in unsyncedPayments) {
         final payment = Payment.fromJson(paymentData);
         final creditId = paymentData['creditId'] as String;
@@ -206,6 +210,10 @@ class SyncService {
             await _firebaseService.savePayment(payment, creditId);
             // Mark as synced only after successful upload
             await _dbHelper.markAsSynced('payments', payment.id);
+            // Track that this credit needs to be updated
+            creditsToUpdate.add(creditId);
+            // Track this payment as newly synced
+            newlySyncedPayments.putIfAbsent(creditId, () => []).add(payment);
           } else {
             // Payment already exists in Firebase, skip to avoid duplicates
             print('Payment ${payment.id} already exists in Firebase, skipping');
@@ -215,6 +223,81 @@ class SyncService {
         } catch (e) {
           print('Error syncing payment ${payment.id}: $e');
           // Continue with other payments - this one will retry on next sync
+        }
+      }
+      
+      // Update parent credit entries in Firebase to reflect the new payments
+      // This ensures customers see the updated balance
+      if (creditsToUpdate.isNotEmpty) {
+        print('Updating ${creditsToUpdate.length} credit entries in Firebase to reflect new payments');
+        final localCredits = await _dbHelper.getAllCredits();
+        
+        // Get all unsynced payments once to avoid multiple queries
+        final allUnsyncedPayments = await _dbHelper.getUnsyncedRecords('payments');
+        final unsyncedPaymentIds = allUnsyncedPayments.map((p) => p['id'] as String).toSet();
+        
+        for (final creditId in creditsToUpdate) {
+          try {
+            // Find the credit in local database (with all payments)
+            final credit = localCredits.firstWhere(
+              (c) => c.id == creditId,
+              orElse: () => throw StateError('Credit $creditId not found in local database'),
+            );
+            
+            // Sync any remaining unsynced payments for this credit first
+            for (final payment in credit.payments) {
+              if (unsyncedPaymentIds.contains(payment.id)) {
+                print('Syncing payment ${payment.id} for credit $creditId');
+                await _firebaseService.savePayment(payment, creditId);
+                await _dbHelper.markAsSynced('payments', payment.id);
+              }
+            }
+            
+            // Update the credit in Firebase with all payments
+            // This ensures the credit entry reflects the correct balance
+            print('Updating credit ${credit.id} in Firebase with ${credit.payments.length} payment(s)');
+            await _firebaseService.updateCredit(credit);
+            
+            // Send notification to customer about the newly synced payments
+            // This ensures customers receive updates when payments are synced from offline mode
+            try {
+              final newlySynced = newlySyncedPayments[creditId] ?? [];
+              if (newlySynced.isNotEmpty) {
+                final customer = await _dbHelper.getCustomerById(credit.customerId);
+                if (customer != null && credit.storeId != null) {
+                  // Get store owner info for notification
+                  final storeOwner = await _dbHelper.getUserById(credit.storeId!);
+                  final storeName = storeOwner?.storeName ?? 'Store';
+                  
+                  // Calculate total amount of newly synced payments
+                  final totalNewPayment = newlySynced.fold(0.0, (sum, p) => sum + p.amount);
+                  
+                  // Send notification to customer
+                  await _firebaseService.saveNotification(
+                    userId: credit.customerId,
+                    title: 'Payment Recorded',
+                    message: '₱${totalNewPayment.toStringAsFixed(2)} payment recorded for ${credit.item}',
+                    type: 'payment_received',
+                    data: {
+                      'creditId': credit.id,
+                      'storeId': credit.storeId,
+                      'storeName': storeName,
+                      'amount': totalNewPayment,
+                      'item': credit.item,
+                      'balance': credit.balance,
+                    },
+                  );
+                  print('Payment notification sent to customer ${credit.customerId} for ${newlySynced.length} payment(s)');
+                }
+              }
+            } catch (e) {
+              print('Error sending payment notification: $e');
+              // Don't fail the sync if notification fails
+            }
+          } catch (e) {
+            print('Error updating credit $creditId in Firebase: $e');
+            // Continue with other credits
+          }
         }
       }
       

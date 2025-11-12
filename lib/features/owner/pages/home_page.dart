@@ -278,7 +278,7 @@ class _DashboardBody extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                             ),
                             Text(
-                              '₱${credit.amount.toStringAsFixed(2)} • ${_formatDateTime(credit.date)}',
+                              'Qty: ${credit.quantity} × ₱${credit.effectiveUnitPrice.toStringAsFixed(2)} = ₱${credit.amount.toStringAsFixed(2)} • ${_formatDateTime(credit.date)}',
                               style: TextStyle(
                                 fontSize: 13,
                                 color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,

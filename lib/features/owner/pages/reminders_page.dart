@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/services/data_store.dart';
 import '../../../core/models/models.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/firebase_service.dart';
 
 class RemindersPage extends StatelessWidget {
   const RemindersPage({super.key});
@@ -10,8 +11,13 @@ class RemindersPage extends StatelessWidget {
 
   Future<void> _sendReminder(BuildContext context, Customer customer, CreditEntry credit) async {
     final notificationService = NotificationService();
+    final firebaseService = FirebaseService();
     
-    // Show in-app notification with haptic feedback
+    // Initialize services
+    await notificationService.initialize();
+    await firebaseService.initialize();
+    
+    // Show in-app notification to store owner (feedback that reminder was sent)
     await notificationService.showInAppNotification(
       context: context,
       title: 'Reminder Sent',
@@ -19,12 +25,36 @@ class RemindersPage extends StatelessWidget {
       type: NotificationType.success,
     );
 
-    // Schedule a local notification as backup
-    await notificationService.scheduleReminderNotification(
-      title: 'Payment Reminder',
-      message: '${customer.name} - ${credit.item}: ₱${credit.balance.toStringAsFixed(2)} due ${_formatDate(credit.dueDate!)}',
-      scheduledDate: DateTime.now().add(const Duration(minutes: 1)),
-    );
+    // Send notification to customer's phone (not store owner's phone)
+    // The customer.id is the customer's user ID
+    try {
+      final storeName = DataStore.instance.state.currentUser?.storeName ?? 'Store';
+      await firebaseService.saveNotification(
+        userId: customer.id, // Send to customer's phone, not store owner's
+        title: 'Payment Reminder',
+        message: '${credit.item}: ₱${credit.balance.toStringAsFixed(2)} due ${_formatDate(credit.dueDate!)}',
+        type: 'payment_reminder',
+        data: {
+          'creditId': credit.id,
+          'storeId': credit.storeId,
+          'storeName': storeName,
+          'amount': credit.balance,
+          'item': credit.item,
+          'dueDate': credit.dueDate?.millisecondsSinceEpoch,
+        },
+      );
+    } catch (e) {
+      print('Error sending reminder notification to customer: $e');
+      // Show error to store owner if notification fails
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sending reminder: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -131,7 +161,7 @@ class RemindersPage extends StatelessWidget {
                         child: ListTile(
                           leading: Icon(overdue ? Icons.warning : Icons.event, color: color),
                           title: Text(e.item, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('Balance: ₱${e.balance.toStringAsFixed(2)}  •  Due: ${_formatDate(e.dueDate!)}'),
+                          subtitle: Text('Qty: ${e.quantity} × ₱${e.effectiveUnitPrice.toStringAsFixed(2)} = ₱${e.amount.toStringAsFixed(2)}  •  Balance: ₱${e.balance.toStringAsFixed(2)}  •  Due: ${_formatDate(e.dueDate!)}'),
                           trailing: IconButton(
                             icon: const Icon(Icons.notifications_active),
                             tooltip: 'Send Reminder',

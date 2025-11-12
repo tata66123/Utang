@@ -523,7 +523,7 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
   }
 
   // Add or update credit - if exists, update amount; if not, create new
-  Future<CreditEntry> addOrUpdateCredit({required String customerId, required String item, required double amount, required DateTime date, DateTime? dueDate}) async {
+  Future<CreditEntry> addOrUpdateCredit({required String customerId, required String item, required double amount, required DateTime date, DateTime? dueDate, int quantity = 1, double? unitPrice}) async {
     try {
       // First check if customer exists in memory
       Customer? customer;
@@ -572,6 +572,8 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
           storeId: existingCredit.storeId,
           item: existingCredit.item,
           amount: existingCredit.amount + amount, // Add to existing amount
+          quantity: existingCredit.quantity + quantity, // Add to existing quantity
+          unitPrice: unitPrice ?? existingCredit.unitPrice, // Use new unitPrice if provided
           date: existingCredit.date,
           dueDate: dueDate ?? existingCredit.dueDate,
         );
@@ -604,6 +606,8 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
           amount: amount,
           date: date,
           dueDate: dueDate,
+          quantity: quantity,
+          unitPrice: unitPrice,
         );
       }
     } catch (e) {
@@ -612,7 +616,7 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     }
   }
 
-  Future<CreditEntry> addCredit({required String customerId, required String item, required double amount, required DateTime date, DateTime? dueDate}) async {
+  Future<CreditEntry> addCredit({required String customerId, required String item, required double amount, required DateTime date, DateTime? dueDate, int quantity = 1, double? unitPrice}) async {
     final String? storeId = _state.currentUser?.role == UserRole.storeOwner ? _state.currentUser?.id : null;
     final CreditEntry e = CreditEntry(
       id: generateId(),
@@ -620,6 +624,8 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
       storeId: storeId,
       item: item.trim(),
       amount: amount,
+      quantity: quantity,
+      unitPrice: unitPrice,
       date: date,
       dueDate: dueDate,
     );

@@ -258,7 +258,7 @@ class _CustomersPageState extends State<CustomersPage> {
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Amount: ₱${credit.amount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
+              Text('Qty: ${credit.quantity} × ₱${credit.effectiveUnitPrice.toStringAsFixed(2)} = ₱${credit.amount.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
               Text('Balance: ₱${credit.balance.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
             ],
           ),

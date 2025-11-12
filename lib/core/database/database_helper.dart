@@ -19,7 +19,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'utang_app.db');
     return await openDatabase(
       path,
-      version: 6, // Increment: add creditLimit to customers
+      version: 7, // Increment: add quantity and unitPrice to credits
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -61,6 +61,8 @@ class DatabaseHelper {
         storeId TEXT,
         item TEXT NOT NULL,
         amount REAL NOT NULL,
+        quantity INTEGER DEFAULT 1,
+        unitPrice REAL,
         date TEXT NOT NULL,
         dueDate TEXT,
         createdAt TEXT NOT NULL,
@@ -133,6 +135,11 @@ class DatabaseHelper {
     if (oldVersion < 6) {
       // Add creditLimit to customers
       await db.execute('ALTER TABLE customers ADD COLUMN creditLimit REAL');
+    }
+    if (oldVersion < 7) {
+      // Add quantity and unitPrice to credits
+      await db.execute('ALTER TABLE credits ADD COLUMN quantity INTEGER DEFAULT 1');
+      await db.execute('ALTER TABLE credits ADD COLUMN unitPrice REAL');
     }
   }
 
@@ -321,6 +328,8 @@ class DatabaseHelper {
       'storeId': credit.storeId,
       'item': credit.item,
       'amount': credit.amount,
+      'quantity': credit.quantity,
+      'unitPrice': credit.unitPrice,
       'date': credit.date.toIso8601String(),
       'dueDate': credit.dueDate?.toIso8601String(),
       'createdAt': DateTime.now().toIso8601String(),
@@ -350,6 +359,8 @@ class DatabaseHelper {
       'storeId': credit.storeId,
       'item': credit.item,
       'amount': credit.amount,
+      'quantity': credit.quantity,
+      'unitPrice': credit.unitPrice,
       'date': credit.date.toIso8601String(),
       'dueDate': credit.dueDate?.toIso8601String(),
       'createdAt': DateTime.now().toIso8601String(),
@@ -391,6 +402,8 @@ class DatabaseHelper {
         storeId: creditMap['storeId'],
         item: creditMap['item'],
         amount: creditMap['amount'],
+        quantity: creditMap['quantity'] != null ? (creditMap['quantity'] as num).toInt() : 1,
+        unitPrice: creditMap['unitPrice'] != null ? (creditMap['unitPrice'] as num).toDouble() : null,
         date: DateTime.parse(creditMap['date']),
         dueDate: creditMap['dueDate'] != null ? DateTime.parse(creditMap['dueDate']) : null,
       );
@@ -423,6 +436,8 @@ class DatabaseHelper {
         storeId: creditMap['storeId'],
         item: creditMap['item'],
         amount: creditMap['amount'],
+        quantity: creditMap['quantity'] != null ? (creditMap['quantity'] as num).toInt() : 1,
+        unitPrice: creditMap['unitPrice'] != null ? (creditMap['unitPrice'] as num).toDouble() : null,
         date: DateTime.parse(creditMap['date']),
         dueDate: creditMap['dueDate'] != null ? DateTime.parse(creditMap['dueDate']) : null,
       );
@@ -453,6 +468,8 @@ class DatabaseHelper {
         storeId: creditMap['storeId'],
         item: creditMap['item'],
         amount: creditMap['amount'],
+        quantity: creditMap['quantity'] != null ? (creditMap['quantity'] as num).toInt() : 1,
+        unitPrice: creditMap['unitPrice'] != null ? (creditMap['unitPrice'] as num).toDouble() : null,
         date: DateTime.parse(creditMap['date']),
         dueDate: creditMap['dueDate'] != null ? DateTime.parse(creditMap['dueDate']) : null,
       );
@@ -471,6 +488,8 @@ class DatabaseHelper {
         'storeId': credit.storeId,
         'item': credit.item,
         'amount': credit.amount,
+        'quantity': credit.quantity,
+        'unitPrice': credit.unitPrice,
         'date': credit.date.toIso8601String(),
         'dueDate': credit.dueDate?.toIso8601String(),
         'updatedAt': DateTime.now().toIso8601String(),
