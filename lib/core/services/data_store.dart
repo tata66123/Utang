@@ -1106,8 +1106,24 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
               await _dbHelper.insertOrReplaceCustomer(customer, markAsSynced: true);
             }
             final remoteCredits = await _firebaseService.getCreditsForCustomer(user.id);
+            final Set<String> storeOwnerIds = <String>{};
             for (final credit in remoteCredits) {
+              if (credit.storeId != null && credit.storeId!.isNotEmpty) {
+                storeOwnerIds.add(credit.storeId!);
+              }
               await _dbHelper.insertOrReplaceCredit(credit, markAsSynced: true);
+            }
+
+            // Cache store owner information locally so the customer can see store names even offline
+            for (final storeId in storeOwnerIds) {
+              try {
+                final storeOwner = await _firebaseService.getUser(storeId);
+                if (storeOwner != null) {
+                  await _dbHelper.insertOrReplaceUser(storeOwner);
+                }
+              } catch (e) {
+                print('Error caching store owner $storeId for customer credits: $e');
+              }
             }
           }
         }
