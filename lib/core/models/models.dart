@@ -9,7 +9,8 @@ class User {
     required this.username, 
     required this.storeName, 
     required this.role,
-    this.password
+    this.password,
+    this.creditLimit,
   });
   final String id;
   final String email;
@@ -17,6 +18,7 @@ class User {
   final String storeName;
   final UserRole role;
   final String? password;
+  final double? creditLimit; // Store owner's credit limit (total outstanding across all customers)
 
   Map<String, dynamic> toJson() => <String, dynamic>{
     'id': id, 
@@ -24,7 +26,8 @@ class User {
     'username': username, 
     'storeName': storeName, 
     'role': role.name,
-    'password': password
+    'password': password,
+    'creditLimit': creditLimit,
   };
   static User fromJson(Map<String, dynamic> j) => User(
     id: j['id'] as String, 
@@ -32,7 +35,8 @@ class User {
     username: j['username'] as String, 
     storeName: j['storeName'] as String, 
     role: UserRole.values.firstWhere((e) => e.name == j['role'], orElse: () => UserRole.storeOwner),
-    password: j['password'] as String?
+    password: j['password'] as String?,
+    creditLimit: j['creditLimit'] != null ? (j['creditLimit'] as num).toDouble() : null,
   );
 }
 

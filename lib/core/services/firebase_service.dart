@@ -52,6 +52,7 @@ class FirebaseService {
       'storeName': user.storeName,
       'role': user.role.name,
       'password': user.password,
+      'creditLimit': user.creditLimit,
       'createdAt': now,
       'updatedAt': now,
     });
@@ -70,6 +71,7 @@ class FirebaseService {
           storeName: data['storeName'] ?? '',
           role: UserRole.values.firstWhere((e) => e.name == data['role'], orElse: () => UserRole.storeOwner),
           password: data['password'],
+          creditLimit: data['creditLimit'] != null ? (data['creditLimit'] as num).toDouble() : null,
         );
       }
     } catch (e) {
@@ -97,6 +99,7 @@ class FirebaseService {
                 orElse: () => UserRole.storeOwner,
               ),
               password: userData['password'],
+              creditLimit: userData['creditLimit'] != null ? (userData['creditLimit'] as num).toDouble() : null,
             );
           }
         }
@@ -126,6 +129,7 @@ class FirebaseService {
       'storeName': user.storeName,
       'role': user.role.name,
       'password': user.password,
+      'creditLimit': user.creditLimit,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
     });
   }

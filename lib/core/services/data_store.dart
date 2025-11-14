@@ -28,6 +28,7 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
   StreamSubscription<DatabaseEvent>? _creditSubscription;
   StreamSubscription<DatabaseEvent>? _customerSubscription;
   StreamSubscription<DatabaseEvent>? _notificationSubscription;
+  Timer? _periodicRefreshTimer;
 
   // AuthServiceInterface implementation
   @override
@@ -443,6 +444,44 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     }
   }
 
+  Future<void> updateUserCreditLimit(double? creditLimit) async {
+    if (_state.currentUser == null) {
+      throw StateError('No user logged in');
+    }
+    
+    final updatedUser = User(
+      id: _state.currentUser!.id,
+      email: _state.currentUser!.email,
+      username: _state.currentUser!.username,
+      storeName: _state.currentUser!.storeName,
+      role: _state.currentUser!.role,
+      password: _state.currentUser!.password,
+      creditLimit: creditLimit,
+    );
+    
+    await _dbHelper.updateUser(updatedUser);
+    
+    // Immediately sync to Firebase
+    try {
+      await _connectivityService.initialize();
+      if (_connectivityService.isOnline) {
+        await _firebaseService.initialize();
+        await _firebaseService.updateUser(updatedUser);
+      }
+    } catch (e) {
+      print('Error syncing user credit limit to Firebase: $e');
+      // Don't throw - allow app to continue working offline
+    }
+    
+    // Update state
+    _state = AppState(
+      customers: _state.customers,
+      credits: _state.credits,
+      currentUser: updatedUser,
+    );
+    notifyListeners();
+  }
+
   Future<void> deleteCustomer(String customerId) async {
     // Delete from SQLite first
     await _dbHelper.deleteCustomer(customerId);
@@ -481,45 +520,39 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     }
   }
 
-  // Check if adding credit would exceed customer's credit limit
-  Future<void> checkCreditLimit(String customerId, double newCreditAmount) async {
-    Customer? customer;
-    try {
-      customer = _state.customers.firstWhere((c) => c.id == customerId);
-    } catch (e) {
-      // Customer not in memory, try to fetch from Firebase
-      try {
-        await _connectivityService.initialize();
-        if (_connectivityService.isOnline) {
-          await _firebaseService.initialize();
-          customer = await _firebaseService.getCustomer(customerId);
-          if (customer != null) {
-            await _dbHelper.insertOrReplaceCustomer(customer, markAsSynced: true);
-            addCustomerToMemory(customer);
-          }
-        }
-      } catch (e2) {
-        print('Error fetching customer from Firebase: $e2');
-      }
+  // Check if adding credit would exceed store owner's credit limit (per transaction)
+  // Returns true if limit is exceeded (warning should be shown), false otherwise
+  Future<bool> checkCreditLimit(String customerId, double newCreditAmount) async {
+    // Only check store owner's credit limit, not customer's
+    if (_state.currentUser == null || _state.currentUser!.role != UserRole.storeOwner) {
+      return false; // No limit check for customers
     }
     
-    if (customer == null) {
-      throw StateError('Customer not found with ID: $customerId');
+    final storeOwner = _state.currentUser!;
+    if (storeOwner.creditLimit == null) {
+      return false; // No limit set, no warning needed
     }
     
-    if (customer.creditLimit != null) {
-      final currentTotalBalance = totalOutstandingForCustomer(customerId);
-      final newTotalBalance = currentTotalBalance + newCreditAmount;
-      
-      if (newTotalBalance > customer.creditLimit!) {
-        throw StateError(
-          'Credit limit exceeded! Current balance: ₱${currentTotalBalance.toStringAsFixed(2)}, '
-          'New credit: ₱${newCreditAmount.toStringAsFixed(2)}, '
-          'Total would be: ₱${newTotalBalance.toStringAsFixed(2)}, '
-          'Limit: ₱${customer.creditLimit!.toStringAsFixed(2)}'
-        );
-      }
+    // Check if the new credit amount (per transaction) exceeds the limit
+    // This is a per-transaction limit, not total outstanding
+    return newCreditAmount > storeOwner.creditLimit!;
+  }
+  
+  // Get the credit limit warning message details (per transaction)
+  Future<Map<String, dynamic>?> getCreditLimitWarning(String customerId, double newCreditAmount) async {
+    final wouldExceed = await checkCreditLimit(customerId, newCreditAmount);
+    if (!wouldExceed || _state.currentUser == null) {
+      return null;
     }
+    
+    final storeOwner = _state.currentUser!;
+    final limit = storeOwner.creditLimit!;
+    
+    return {
+      'newCredit': newCreditAmount,
+      'limit': limit,
+      'excess': newCreditAmount - limit,
+    };
   }
 
   // Add or update credit - if exists, update amount; if not, create new
@@ -559,11 +592,7 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
       );
 
       if (existingCredit != null) {
-        // Calculate the additional amount being added
-        final additionalAmount = amount;
-        
-        // Check credit limit before updating
-        await checkCreditLimit(customerId, additionalAmount);
+        // Note: Credit limit check is handled in UI with warning dialog (non-blocking)
         
         // Update existing credit amount
         final updatedCredit = CreditEntry(
@@ -596,8 +625,7 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
         notifyListeners();
         return updatedCredit;
       } else {
-        // Check credit limit before creating new credit
-        await checkCreditLimit(customerId, amount);
+        // Note: Credit limit check is handled in UI with warning dialog (non-blocking)
         
         // Create new credit
         return await addCredit(
@@ -724,10 +752,36 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
   }
 
   Future<void> toggleTheme() async {
-    _isDarkMode = !_isDarkMode;
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_themeKey, _isDarkMode);
-    notifyListeners();
+    try {
+      // Toggle the value
+      _isDarkMode = !_isDarkMode;
+      
+      // Save to SharedPreferences FIRST (before notifying)
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_themeKey, _isDarkMode);
+      
+      // Force a sync to ensure it's written to disk
+      await prefs.reload();
+      
+      // Verify it was saved
+      final saved = prefs.getBool(_themeKey);
+      if (saved != _isDarkMode) {
+        // If save failed, try again
+        _isDarkMode = saved ?? false;
+        await prefs.setBool(_themeKey, _isDarkMode);
+        await prefs.reload();
+      }
+      
+      // Notify listeners AFTER saving to ensure state is correct
+      notifyListeners();
+      
+      print('Theme toggled to: ${_isDarkMode ? "dark" : "light"}');
+    } catch (e) {
+      print('Error toggling theme: $e');
+      // Revert on error
+      _isDarkMode = !_isDarkMode;
+      notifyListeners();
+    }
   }
 
   Future<void> syncNow() async {
@@ -955,7 +1009,10 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
   // Refresh data from database to ensure we have the latest information
   Future<void> refreshData() async {
     try {
-      await _setStateFromDatabase(_state.currentUser);
+      if (_state.currentUser != null) {
+        await _setStateFromDatabase(_state.currentUser);
+        notifyListeners();
+      }
     } catch (e) {
       print('Error refreshing data: $e');
     }
@@ -1184,8 +1241,13 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     }
 
     void creditHandler(DatabaseEvent event) async {
+      // Handle both null and non-null snapshots
+      // Null snapshot means no credits exist yet, which is valid
       if (event.snapshot.value == null) {
-        print('Credit handler: No data in snapshot');
+        print('Credit handler: No data in snapshot (empty credits)');
+        // Still refresh state to ensure UI is updated
+        await _setStateFromDatabase(user);
+        notifyListeners();
         return;
       }
       
@@ -1194,16 +1256,17 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
       
       print('Credit handler: Received data for user ${user.id} (role: ${user.role})');
       
-      if (creditsData is Map) {
+      if (creditsData is Map && creditsData.isNotEmpty) {
         print('Credit handler: Processing ${creditsData.length} credits from Firebase');
         
-        // Handle removed credits (check if any local credits are not in Firebase)
-        // Only get local credits relevant to this user
+        // Get local credits for comparison
         final localCredits = user.role == UserRole.storeOwner
             ? await _dbHelper.getCreditsByStoreId(user.id)
             : await _dbHelper.getCreditsByCustomerId(user.id);
+        final localCreditIds = localCredits.map((c) => c.id).toSet();
         final firebaseCreditIds = creditsData.keys.toSet();
         
+        // Handle removed credits (check if any local credits are not in Firebase)
         for (final localCredit in localCredits) {
           if (!firebaseCreditIds.contains(localCredit.id)) {
             // Credit was deleted in Firebase
@@ -1214,15 +1277,30 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
         }
         
         // Handle added/updated credits
-        // When using orderByChild query, Firebase returns data directly in the map
+        // Process ALL credits from Firebase to catch new ones
         for (final entry in creditsData.entries) {
           final creditId = entry.key;
           final creditData = entry.value;
           
-          // Parse credit data directly from the event (faster than making another Firebase call)
+          // Parse credit data directly from the event
           if (creditData is Map) {
             try {
-              // Get payments for this credit (fetch all payments and filter to avoid index requirement)
+              // Verify this credit is relevant to the current user FIRST (before expensive operations)
+              final creditStoreId = creditData['storeId'];
+              final creditCustomerId = creditData['customerId'] ?? '';
+              bool shouldInclude = false;
+              
+              if (user.role == UserRole.storeOwner) {
+                shouldInclude = creditStoreId == user.id;
+              } else if (user.role == UserRole.customer) {
+                shouldInclude = creditCustomerId == user.id;
+              }
+              
+              if (!shouldInclude) {
+                continue; // Skip this credit, not relevant
+              }
+              
+              // Get payments for this credit
               final allPaymentsSnapshot = await _firebaseService.database.child('payments').get();
               final List<Payment> payments = [];
               if (allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
@@ -1241,37 +1319,36 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
 
               final credit = CreditEntry(
                 id: creditId,
-                customerId: creditData['customerId'] ?? '',
-                storeId: creditData['storeId'],
+                customerId: creditCustomerId,
+                storeId: creditStoreId,
                 item: creditData['item'] ?? '',
                 amount: (creditData['amount'] as num).toDouble(),
+                quantity: creditData['quantity'] != null ? (creditData['quantity'] as num).toInt() : 1,
+                unitPrice: creditData['unitPrice'] != null ? (creditData['unitPrice'] as num).toDouble() : null,
                 date: DateTime.fromMillisecondsSinceEpoch(creditData['date'] as int? ?? DateTime.now().millisecondsSinceEpoch),
                 dueDate: creditData['dueDate'] != null ? DateTime.fromMillisecondsSinceEpoch(creditData['dueDate'] as int) : null,
               );
               
               credit.payments.addAll(payments);
               
-              // Verify this credit is relevant to the current user
-              bool shouldInclude = false;
-              if (user.role == UserRole.storeOwner) {
-                shouldInclude = credit.storeId == user.id;
-              } else if (user.role == UserRole.customer) {
-                shouldInclude = credit.customerId == user.id;
+              // Check if this is a new credit or an update
+              final isNewCredit = !localCreditIds.contains(creditId);
+              
+              // Always update, even if it exists (to catch payment updates, etc.)
+              print('Credit handler: ${isNewCredit ? "Adding new" : "Updating existing"} credit ${creditId} for customer ${credit.customerId}');
+              await _dbHelper.insertOrReplaceCredit(credit, markAsSynced: true);
+              
+              // Also fetch and cache the customer if not already cached
+              final customer = await _firebaseService.getCustomer(credit.customerId);
+              if (customer != null) {
+                await _dbHelper.insertOrReplaceCustomer(customer, markAsSynced: true);
+                // Add customer to state if not present
+                if (!_state.customers.any((c) => c.id == customer.id)) {
+                  _state.customers.add(customer);
+                }
               }
               
-              if (shouldInclude) {
-                print('Credit handler: Adding/updating credit ${creditId} for customer ${credit.customerId}');
-                await _dbHelper.insertOrReplaceCredit(credit, markAsSynced: true);
-                
-                // Also fetch and cache the customer if not already cached
-                final customer = await _firebaseService.getCustomer(credit.customerId);
-                if (customer != null) {
-                  await _dbHelper.insertOrReplaceCustomer(customer, markAsSynced: true);
-                }
-                changed = true;
-              } else {
-                print('Credit handler: Skipping credit ${creditId} (not relevant to user ${user.id})');
-              }
+              changed = true;
             } catch (e) {
               print('Credit handler: Error parsing credit $creditId: $e');
               // Fallback to getCredit method if direct parsing fails
@@ -1290,6 +1367,9 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
                     final customer = await _firebaseService.getCustomer(credit.customerId);
                     if (customer != null) {
                       await _dbHelper.insertOrReplaceCustomer(customer, markAsSynced: true);
+                      if (!_state.customers.any((c) => c.id == customer.id)) {
+                        _state.customers.add(customer);
+                      }
                     }
                     changed = true;
                   }
@@ -1300,6 +1380,12 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
             }
           }
         }
+      } else if (creditsData is Map && creditsData.isEmpty) {
+        // Empty map - no credits, but still refresh state
+        print('Credit handler: Empty credits map, refreshing state');
+        await _setStateFromDatabase(user);
+        notifyListeners();
+        return;
       } else {
         print('Credit handler: Data is not a Map, type: ${creditsData.runtimeType}');
       }
@@ -1307,8 +1393,13 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
       if (changed) {
         print('Credit handler: Data changed, refreshing state for user ${user.id} (role: ${user.role})');
         await _setStateFromDatabase(user);
+        // Force notify listeners to ensure UI updates
+        notifyListeners();
       } else {
         print('Credit handler: No changes detected for user ${user.id}');
+        // Even if no changes detected, refresh state to ensure consistency
+        await _setStateFromDatabase(user);
+        notifyListeners();
       }
     }
 
@@ -1372,10 +1463,12 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
 
       if (changed) {
         await _setStateFromDatabase(user);
+        // Force notify listeners to ensure UI updates
+        notifyListeners();
       }
     }
 
-    // Set up credit listeners
+    // Set up credit listeners with error handling and auto-reconnect
     if (user.role == UserRole.customer) {
       print('Setting up credit listener for customer: ${user.id}');
       _creditSubscription = _firebaseService
@@ -1384,7 +1477,15 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
             creditHandler,
             onError: (error) {
               print('Credit listener error for customer ${user.id}: $error');
+              // Try to reconnect after a delay
+              Future.delayed(const Duration(seconds: 2), () {
+                if (_state.currentUser?.id == user.id) {
+                  print('Attempting to reconnect credit listener for customer ${user.id}');
+                  _startRealtimeSyncForCurrentUser();
+                }
+              });
             },
+            cancelOnError: false, // Don't cancel on error, keep trying
           );
       print('Credit listener active for customer: ${user.id}');
     } else if (user.role == UserRole.storeOwner) {
@@ -1395,7 +1496,15 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
             creditHandler,
             onError: (error) {
               print('Credit listener error for store owner ${user.id}: $error');
+              // Try to reconnect after a delay
+              Future.delayed(const Duration(seconds: 2), () {
+                if (_state.currentUser?.id == user.id) {
+                  print('Attempting to reconnect credit listener for store owner ${user.id}');
+                  _startRealtimeSyncForCurrentUser();
+                }
+              });
             },
+            cancelOnError: false, // Don't cancel on error, keep trying
           );
       print('Credit listener active for store owner: ${user.id}');
     }
@@ -1475,15 +1584,44 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
           },
         );
     print('Notification listener active for user: ${user.id}');
+    
+    // Set up periodic refresh as fallback (every 10 seconds) in case listeners fail silently on devices
+    _periodicRefreshTimer?.cancel();
+    _periodicRefreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (_state.currentUser?.id == user.id) {
+        // Silently refresh data periodically
+        refreshCreditsFromFirebase().catchError((e) {
+          print('Periodic refresh error: $e');
+        });
+      } else {
+        // User changed, stop timer
+        timer.cancel();
+      }
+    });
   }
 
   Future<void> _stopRealtimeSync() async {
-    await _creditSubscription?.cancel();
-    await _customerSubscription?.cancel();
-    await _notificationSubscription?.cancel();
-    _creditSubscription = null;
-    _customerSubscription = null;
-    _notificationSubscription = null;
+    try {
+      await _creditSubscription?.cancel();
+      await _customerSubscription?.cancel();
+      await _notificationSubscription?.cancel();
+      _periodicRefreshTimer?.cancel();
+    } catch (e) {
+      print('Error stopping realtime sync: $e');
+    } finally {
+      _creditSubscription = null;
+      _customerSubscription = null;
+      _notificationSubscription = null;
+      _periodicRefreshTimer = null;
+    }
+  }
+
+  // Public method to restart real-time sync (useful when app resumes)
+  Future<void> restartRealtimeSync() async {
+    if (_state.currentUser != null) {
+      print('Restarting real-time sync for user ${_state.currentUser!.id}');
+      await _startRealtimeSyncForCurrentUser();
+    }
   }
 
   Future<void> _downloadAndCacheUserData(User user) async {

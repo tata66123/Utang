@@ -280,7 +280,58 @@ class _AddCreditPageState extends State<AddCreditPage> {
               return;
             }
             
-            // Check credit limit before adding
+            // Check credit limit before adding (non-blocking warning)
+            final warningInfo = await _store.getCreditLimitWarning(customer.id, totalAmount);
+            if (warningInfo != null) {
+              // Show warning dialog
+              final shouldProceed = await showDialog<bool>(
+                context: context,
+                builder: (BuildContext ctx) => AlertDialog(
+                  title: const Text(
+                    'Credit Limit Warning',
+                    style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'The total of this credit transaction is way surpassed your currently set credit limit per transaction. Would you still charge this?',
+                        style: TextStyle(fontSize: 16),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Credit Amount: ₱${warningInfo['newCredit'].toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text('Credit Limit (Per Transaction): ₱${warningInfo['limit'].toStringAsFixed(2)}'),
+                      Text(
+                        'Excess Amount: ₱${warningInfo['excess'].toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text('NO', style: TextStyle(color: Colors.red)),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                      child: const Text('YES', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                ),
+              );
+              
+              if (shouldProceed != true) {
+                // User chose not to proceed
+                return;
+              }
+            }
+            
+            // Proceed with adding credit
             try {
               await _store.addOrUpdateCredit(
                 customerId: customer.id,
@@ -292,19 +343,6 @@ class _AddCreditPageState extends State<AddCreditPage> {
                 unitPrice: unitPrice,
               );
             } catch (e) {
-              // Handle credit limit exceeded error
-              if (e.toString().contains('Credit limit exceeded')) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error: $e'),
-                      backgroundColor: Colors.red,
-                      duration: const Duration(seconds: 5),
-                    ),
-                  );
-                }
-                return;
-              }
               // Handle customer not found error
               if (e.toString().contains('Customer not found')) {
                 if (mounted) {

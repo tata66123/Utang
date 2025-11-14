@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/data_store.dart';
+import '../../../core/models/models.dart';
 import 'auth/login_page.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -11,6 +12,8 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   DataStore get _store => DataStore.instance;
+  final TextEditingController _creditLimitController = TextEditingController();
+  bool _isLoading = false;
 
   void _logout() {
     showDialog(
@@ -93,6 +96,109 @@ class _SettingsPageState extends State<SettingsPage> {
 
 
   @override
+  void initState() {
+    super.initState();
+    _updateCreditLimitController();
+    // Listen to state changes to keep credit limit field in sync
+    _store.addListener(_updateCreditLimitController);
+  }
+
+  void _updateCreditLimitController() {
+    final user = _store.state.currentUser;
+    if (user != null && user.creditLimit != null) {
+      final currentText = _creditLimitController.text;
+      final newText = user.creditLimit!.toStringAsFixed(2);
+      // Only update if different to avoid cursor jumping
+      if (currentText != newText) {
+        _creditLimitController.text = newText;
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _store.removeListener(_updateCreditLimitController);
+    _creditLimitController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveCreditLimit() async {
+    if (_store.state.currentUser?.role != UserRole.storeOwner) {
+      return; // Only for store owners
+    }
+
+    final limitText = _creditLimitController.text.trim();
+    if (limitText.isEmpty) {
+      // Clear credit limit
+      setState(() => _isLoading = true);
+      try {
+        await _store.updateUserCreditLimit(null);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Credit limit cleared successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error updating credit limit: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
+      return;
+    }
+
+    final limit = double.tryParse(limitText);
+    if (limit == null || limit < 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter a valid positive number'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      await _store.updateUserCreditLimit(limit);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Credit limit set to ₱${limit.toStringAsFixed(2)}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating credit limit: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final user = _store.state.currentUser;
     final totalCustomers = _store.state.customers.length;
@@ -141,6 +247,80 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const SizedBox(height: 16),
+
+          // Credit Limit Settings Card (only for store owners)
+          if (user != null && user.role == UserRole.storeOwner) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Credit Limit Settings',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Set a credit limit per transaction for your store. When adding a credit transaction that exceeds this limit, you will receive a warning (but can still proceed).',
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _creditLimitController,
+                      decoration: InputDecoration(
+                        labelText: 'Credit Limit (₱)',
+                        hintText: 'Enter amount or leave empty to remove limit',
+                        prefixIcon: const Icon(Icons.account_balance_wallet),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        suffixIcon: _creditLimitController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  setState(() {
+                                    _creditLimitController.clear();
+                                  });
+                                },
+                              )
+                            : null,
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      enabled: !_isLoading,
+                    ),
+                    const SizedBox(height: 12),
+                    if (user.creditLimit != null) ...[
+                      Text(
+                        'Current Limit (Per Transaction): ₱${user.creditLimit!.toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _saveCreditLimit,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Text('Save Credit Limit'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // App Statistics Card
           Card(

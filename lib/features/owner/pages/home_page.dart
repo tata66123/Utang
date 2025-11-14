@@ -34,13 +34,6 @@ class _HomePageState extends State<HomePage> {
                 : widget.email);
         final String storeName = store.state.currentUser?.storeName ?? 'Your Store';
 
-    // Auto-open the drawer shortly after build to make it pop when arriving here
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _scaffoldKey.currentState?.openDrawer();
-      }
-    });
-
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(title: const Text("Dashboard")),
@@ -129,7 +122,10 @@ class _HomePageState extends State<HomePage> {
                   subtitle: Text(store.isDarkMode ? 'Dark Mode' : 'Light Mode'),
                   trailing: Switch(
                     value: store.isDarkMode,
-                    onChanged: (value) => store.toggleTheme(),
+                    onChanged: (value) async {
+                      // Toggle theme
+                      await store.toggleTheme();
+                    },
                   ),
                 );
               },
@@ -315,37 +311,51 @@ class _DashboardBody extends StatelessWidget {
   }
 
   String _getMonthTotalCredits(DataStore store) {
-    final now = DateTime.now();
-    final monthStart = DateTime(now.year, now.month, 1);
-    final monthEnd = DateTime(now.year, now.month + 1, 1);
-    
-    double total = 0;
-    for (final credit in store.state.credits) {
-      if (credit.date.isAfter(monthStart.subtract(const Duration(days: 1))) && 
-          credit.date.isBefore(monthEnd)) {
-        total += credit.amount;
+    try {
+      final now = DateTime.now();
+      final monthStart = DateTime(now.year, now.month, 1);
+      final monthEnd = DateTime(now.year, now.month + 1, 1);
+      
+      double total = 0;
+      if (store.state.credits.isNotEmpty) {
+        for (final credit in store.state.credits) {
+          if (credit.date.isAfter(monthStart.subtract(const Duration(days: 1))) && 
+              credit.date.isBefore(monthEnd)) {
+            total += credit.amount;
+          }
+        }
       }
+      
+      return '₱${total.toStringAsFixed(2)}';
+    } catch (e) {
+      return '₱0.00';
     }
-    
-    return '₱${total.toStringAsFixed(2)}';
   }
 
   String _getMonthTotalPayments(DataStore store) {
-    final now = DateTime.now();
-    final monthStart = DateTime(now.year, now.month, 1);
-    final monthEnd = DateTime(now.year, now.month + 1, 1);
-    
-    double total = 0;
-    for (final credit in store.state.credits) {
-      for (final payment in credit.payments) {
-        if (payment.date.isAfter(monthStart.subtract(const Duration(days: 1))) && 
-            payment.date.isBefore(monthEnd)) {
-          total += payment.amount;
+    try {
+      final now = DateTime.now();
+      final monthStart = DateTime(now.year, now.month, 1);
+      final monthEnd = DateTime(now.year, now.month + 1, 1);
+      
+      double total = 0;
+      if (store.state.credits.isNotEmpty) {
+        for (final credit in store.state.credits) {
+          if (credit.payments.isNotEmpty) {
+            for (final payment in credit.payments) {
+              if (payment.date.isAfter(monthStart.subtract(const Duration(days: 1))) && 
+                  payment.date.isBefore(monthEnd)) {
+                total += payment.amount;
+              }
+            }
+          }
         }
       }
+      
+      return '₱${total.toStringAsFixed(2)}';
+    } catch (e) {
+      return '₱0.00';
     }
-    
-    return '₱${total.toStringAsFixed(2)}';
   }
 
   Widget _buildSimpleChart(DataStore store) {
@@ -515,63 +525,77 @@ class _DashboardBody extends StatelessWidget {
 
 
   List<FlSpot> _generateChartData(DataStore store) {
-    final now = DateTime.now();
-    final List<FlSpot> spots = [];
-    
-    // Get data for the current month only (daily breakdown)
-    final monthStart = DateTime(now.year, now.month, 1);
-    final monthEnd = DateTime(now.year, now.month + 1, 1);
-    final daysInMonth = monthEnd.difference(monthStart).inDays;
-    
-    // Generate daily data points for current month
-    for (int day = 1; day <= daysInMonth; day++) {
-      final currentDay = DateTime(now.year, now.month, day);
-      final nextDay = DateTime(now.year, now.month, day + 1);
+    try {
+      final now = DateTime.now();
+      final List<FlSpot> spots = [];
       
-      // Calculate credits for this day
-      double dailyCredits = 0;
-      for (final credit in store.state.credits) {
-        if (credit.date.isAfter(currentDay.subtract(const Duration(days: 1))) && 
-            credit.date.isBefore(nextDay)) {
-          dailyCredits += credit.amount;
+      // Get data for the current month only (daily breakdown)
+      final monthStart = DateTime(now.year, now.month, 1);
+      final monthEnd = DateTime(now.year, now.month + 1, 1);
+      final daysInMonth = monthEnd.difference(monthStart).inDays;
+      
+      // Generate daily data points for current month
+      for (int day = 1; day <= daysInMonth; day++) {
+        final currentDay = DateTime(now.year, now.month, day);
+        final nextDay = DateTime(now.year, now.month, day + 1);
+        
+        // Calculate credits for this day
+        double dailyCredits = 0;
+        if (store.state.credits.isNotEmpty) {
+          for (final credit in store.state.credits) {
+            if (credit.date.isAfter(currentDay.subtract(const Duration(days: 1))) && 
+                credit.date.isBefore(nextDay)) {
+              dailyCredits += credit.amount;
+            }
+          }
         }
+        
+        spots.add(FlSpot(day.toDouble(), dailyCredits));
       }
       
-      spots.add(FlSpot(day.toDouble(), dailyCredits));
+      return spots;
+    } catch (e) {
+      return [];
     }
-    
-    return spots;
   }
 
   List<FlSpot> _generatePaymentData(DataStore store) {
-    final now = DateTime.now();
-    final List<FlSpot> spots = [];
-    
-    // Get data for the current month only (daily breakdown)
-    final monthStart = DateTime(now.year, now.month, 1);
-    final monthEnd = DateTime(now.year, now.month + 1, 1);
-    final daysInMonth = monthEnd.difference(monthStart).inDays;
-    
-    // Generate daily data points for current month
-    for (int day = 1; day <= daysInMonth; day++) {
-      final currentDay = DateTime(now.year, now.month, day);
-      final nextDay = DateTime(now.year, now.month, day + 1);
+    try {
+      final now = DateTime.now();
+      final List<FlSpot> spots = [];
       
-      // Calculate payments for this day
-      double dailyPayments = 0;
-      for (final credit in store.state.credits) {
-        for (final payment in credit.payments) {
-          if (payment.date.isAfter(currentDay.subtract(const Duration(days: 1))) && 
-              payment.date.isBefore(nextDay)) {
-            dailyPayments += payment.amount;
+      // Get data for the current month only (daily breakdown)
+      final monthStart = DateTime(now.year, now.month, 1);
+      final monthEnd = DateTime(now.year, now.month + 1, 1);
+      final daysInMonth = monthEnd.difference(monthStart).inDays;
+      
+      // Generate daily data points for current month
+      for (int day = 1; day <= daysInMonth; day++) {
+        final currentDay = DateTime(now.year, now.month, day);
+        final nextDay = DateTime(now.year, now.month, day + 1);
+        
+        // Calculate payments for this day
+        double dailyPayments = 0;
+        if (store.state.credits.isNotEmpty) {
+          for (final credit in store.state.credits) {
+            if (credit.payments.isNotEmpty) {
+              for (final payment in credit.payments) {
+                if (payment.date.isAfter(currentDay.subtract(const Duration(days: 1))) && 
+                    payment.date.isBefore(nextDay)) {
+                  dailyPayments += payment.amount;
+                }
+              }
+            }
           }
         }
+        
+        spots.add(FlSpot(day.toDouble(), dailyPayments));
       }
       
-      spots.add(FlSpot(day.toDouble(), dailyPayments));
+      return spots;
+    } catch (e) {
+      return [];
     }
-    
-    return spots;
   }
 
   Widget _buildChart(DataStore store) {
@@ -1028,11 +1052,13 @@ class _DashboardBody extends StatelessWidget {
     final DateTime lastSynced = DateTime.now();
     final String lastSyncedText = 'Last synced: ${lastSynced.day}/${lastSynced.month}/${lastSynced.year} ${lastSynced.hour.toString().padLeft(2, '0')}:${lastSynced.minute.toString().padLeft(2, '0')}';
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
+    return Consumer<DataStore>(
+      builder: (context, dataStore, child) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
           // Welcome section with store name
           Container(
             padding: const EdgeInsets.all(16.0),
@@ -1143,7 +1169,7 @@ class _DashboardBody extends StatelessWidget {
                   const SizedBox(height: 12),
                   SizedBox(
                     height: 150,
-                    child: _buildSimpleChart(store),
+                    child: _buildSimpleChart(dataStore),
                   ),
                 ],
               ),
@@ -1180,7 +1206,7 @@ class _DashboardBody extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _getMonthTotalCredits(store),
+                          _getMonthTotalCredits(dataStore),
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -1220,7 +1246,7 @@ class _DashboardBody extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _getMonthTotalPayments(store),
+                          _getMonthTotalPayments(dataStore),
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -1344,7 +1370,7 @@ class _DashboardBody extends StatelessWidget {
             children: <Widget>[
               _EnhancedStatCard(
                 title: 'Total Outstanding', 
-                value: '₱${store.totalOutstanding().toStringAsFixed(2)}', 
+                value: '₱${dataStore.totalOutstanding().toStringAsFixed(2)}', 
                 subtitle: '',
                 icon: Icons.account_balance_wallet, 
                 color: Colors.blue,
@@ -1354,10 +1380,10 @@ class _DashboardBody extends StatelessWidget {
                   MaterialPageRoute(builder: (context) => const OutstandingDetailsPage()),
                 ),
               ),
-              _TotalPaidCard(store: store),
+              _TotalPaidCard(store: dataStore),
               _ClickableStatCard(
                 title: 'Customers', 
-                value: '${store.state.customers.length}', 
+                value: '${dataStore.state.customers.length}', 
                 icon: Icons.group, 
                 color: Colors.teal,
                 onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CustomersPage())),
@@ -1406,7 +1432,7 @@ class _DashboardBody extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    _buildRecentActivity(store),
+                    _buildRecentActivity(dataStore),
                   ],
                 ),
               );
@@ -1415,8 +1441,9 @@ class _DashboardBody extends StatelessWidget {
         ],
       ),
     );
+      },
+    );
   }
-
 }
 
 class _ClickableStatCard extends StatelessWidget {

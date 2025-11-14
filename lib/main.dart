@@ -19,13 +19,57 @@ class ProjectApp extends StatefulWidget {
   State<ProjectApp> createState() => _ProjectAppState();
 }
 
-class _ProjectAppState extends State<ProjectApp> {
+class _ProjectAppState extends State<ProjectApp> with WidgetsBindingObserver {
   bool _loaded = false;
+  bool _lastDarkMode = false;
 
   @override
   void initState() {
     super.initState();
-    ServiceLocator().dataStore.load().then((_) => setState(() => _loaded = true));
+    WidgetsBinding.instance.addObserver(this);
+    ServiceLocator().dataStore.load().then((_) {
+      if (mounted) {
+        _lastDarkMode = ServiceLocator().dataStore.isDarkMode;
+        setState(() => _loaded = true);
+      }
+    });
+    // Listen to theme changes
+    ServiceLocator().dataStore.addListener(_onThemeChanged);
+  }
+
+  void _onThemeChanged() {
+    final currentDarkMode = ServiceLocator().dataStore.isDarkMode;
+    if (currentDarkMode != _lastDarkMode) {
+      _lastDarkMode = currentDarkMode;
+      if (mounted) {
+        setState(() {}); // Force rebuild when theme changes
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    ServiceLocator().dataStore.removeListener(_onThemeChanged);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    final dataStore = ServiceLocator().dataStore;
+    
+    // When app comes to foreground, restart listeners and refresh data
+    if (state == AppLifecycleState.resumed && dataStore.state.currentUser != null) {
+      // Restart real-time listeners (they may have disconnected in background)
+      dataStore.restartRealtimeSync();
+      
+      // Refresh data from database and Firebase
+      dataStore.refreshData().then((_) {
+        // Also refresh from Firebase if online
+        dataStore.refreshCreditsFromFirebase();
+      });
+    }
   }
 
   @override
@@ -34,6 +78,8 @@ class _ProjectAppState extends State<ProjectApp> {
       value: ServiceLocator().dataStore,
       child: Consumer<DataStore>(
         builder: (context, dataStore, child) {
+          // MaterialApp will rebuild automatically when themeMode changes via Consumer
+          // No need for key change to avoid closing drawers/navigation
           return MaterialApp(
             title: 'Utang App',
             theme: AppTheme.light(),

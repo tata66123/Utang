@@ -19,7 +19,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'utang_app.db');
     return await openDatabase(
       path,
-      version: 7, // Increment: add quantity and unitPrice to credits
+      version: 8, // Increment: add creditLimit to users table
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -35,6 +35,7 @@ class DatabaseHelper {
         storeName TEXT NOT NULL,
         role TEXT NOT NULL,
         password TEXT,
+        creditLimit REAL,
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL
       )
@@ -141,6 +142,10 @@ class DatabaseHelper {
       await db.execute('ALTER TABLE credits ADD COLUMN quantity INTEGER DEFAULT 1');
       await db.execute('ALTER TABLE credits ADD COLUMN unitPrice REAL');
     }
+    if (oldVersion < 8) {
+      // Add creditLimit to users table (for store owners)
+      await db.execute('ALTER TABLE users ADD COLUMN creditLimit REAL');
+    }
   }
 
   // User operations
@@ -153,6 +158,7 @@ class DatabaseHelper {
       'storeName': user.storeName,
       'role': user.role.name,
       'password': user.password,
+      'creditLimit': user.creditLimit,
       'createdAt': DateTime.now().toIso8601String(),
       'updatedAt': DateTime.now().toIso8601String(),
     });
@@ -167,6 +173,7 @@ class DatabaseHelper {
       'storeName': user.storeName,
       'role': user.role.name,
       'password': user.password,
+      'creditLimit': user.creditLimit,
       'createdAt': DateTime.now().toIso8601String(),
       'updatedAt': DateTime.now().toIso8601String(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -213,6 +220,7 @@ class DatabaseHelper {
         'storeName': user.storeName,
         'role': user.role.name,
         'password': user.password,
+        'creditLimit': user.creditLimit,
         'updatedAt': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
