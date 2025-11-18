@@ -36,8 +36,10 @@ class _HistoryPageState extends State<HistoryPage> {
       return a.name.toLowerCase().compareTo(b.name.toLowerCase());
     });
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
     return Scaffold(
-      appBar: AppBar(title: const Text('Transaction History'), backgroundColor: Colors.blue),
+      appBar: AppBar(title: const Text('Transaction History')),
       body: Column(
           children: <Widget>[
             Padding(
@@ -80,10 +82,15 @@ class _HistoryPageState extends State<HistoryPage> {
                               'Paid: ₱${totalPaid.toStringAsFixed(2)}  •  Outstanding: ₱${totalOutstanding.toStringAsFixed(2)}',
                             ),
                             leading: CircleAvatar(
-                              backgroundColor: Colors.blue.shade100,
+                              backgroundColor: isDark 
+                                  ? Colors.blue.shade800.withOpacity(0.5)
+                                  : Colors.blue.shade100,
                               child: Text(
                                 customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
-                                style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                  color: isDark ? Colors.blue.shade200 : Colors.blue.shade700, 
+                                  fontWeight: FontWeight.bold
+                                ),
                               ),
                             ),
                             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
@@ -98,7 +105,8 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
-  Widget _buildCreditTile(CreditEntry e) {
+  Widget _buildCreditTile(CreditEntry e, BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0),
       child: Card(
@@ -107,25 +115,49 @@ class _HistoryPageState extends State<HistoryPage> {
             e.balance > 0 ? Icons.pending : Icons.check_circle,
             color: e.balance > 0 ? Colors.orange : Colors.green,
           ),
-          title: Text(e.item),
+          title: Text(
+            e.item,
+            style: TextStyle(color: isDark ? Colors.grey.shade100 : Colors.black87),
+          ),
           subtitle: Text(
             'Amount: ₱${e.amount.toStringAsFixed(2)}  •  Paid: ₱${e.paidAmount.toStringAsFixed(2)}  •  Bal: ₱${e.balance.toStringAsFixed(2)}\nDate: ${_formatDate(e.date)}${e.dueDate != null ? '  •  Due: ${_formatDate(e.dueDate!)}' : ''}',
+            style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade700),
           ),
           children: <Widget>[
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('Payments:', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: Text(
+                  'Payments:', 
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.grey.shade100 : Colors.black87,
+                  ),
+                ),
               ),
             ),
             if (e.payments.isEmpty)
-              const ListTile(title: Text('No payments yet'))
+              ListTile(
+                title: Text(
+                  'No payments yet',
+                  style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                ),
+              )
             else
               ...e.payments.map((Payment p) => ListTile(
-                    leading: const Icon(Icons.payment, color: Colors.green),
-                    title: Text('₱${p.amount.toStringAsFixed(2)}'),
-                    subtitle: Text('Date: ${_formatDate(p.date)}'),
+                    leading: Icon(
+                      Icons.payment, 
+                      color: isDark ? Colors.green.shade300 : Colors.green,
+                    ),
+                    title: Text(
+                      '₱${p.amount.toStringAsFixed(2)}',
+                      style: TextStyle(color: isDark ? Colors.grey.shade100 : Colors.black87),
+                    ),
+                    subtitle: Text(
+                      'Date: ${_formatDate(p.date)}',
+                      style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                    ),
                   )),
           ],
         ),
@@ -134,6 +166,7 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   void _openCustomerTransactionsDialog(BuildContext context, Customer customer, List<CreditEntry> credits) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (ctx) {
@@ -147,16 +180,23 @@ class _HistoryPageState extends State<HistoryPage> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
+                    color: isDark 
+                        ? Colors.blue.shade900.withOpacity(0.3)
+                        : Colors.blue.shade50,
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                   ),
                   child: Row(
                     children: [
                       CircleAvatar(
-                        backgroundColor: Colors.blue.shade100,
+                        backgroundColor: isDark 
+                            ? Colors.blue.shade800.withOpacity(0.5)
+                            : Colors.blue.shade100,
                         child: Text(
                           customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
-                          style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            color: isDark ? Colors.blue.shade200 : Colors.blue.shade700, 
+                            fontWeight: FontWeight.bold
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -164,8 +204,20 @@ class _HistoryPageState extends State<HistoryPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(customer.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            Text('Transactions (${credits.length})', style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+                            Text(
+                              customer.name, 
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.grey.shade100 : Colors.black87,
+                              ),
+                            ),
+                            Text(
+                              'Transactions (${credits.length})', 
+                              style: TextStyle(
+                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade700, 
+                                fontSize: 12
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -182,7 +234,7 @@ class _HistoryPageState extends State<HistoryPage> {
                       : ListView.builder(
                           padding: const EdgeInsets.all(12),
                           itemCount: credits.length,
-                          itemBuilder: (context, index) => _buildCreditTile(credits[index]),
+                          itemBuilder: (context, index) => _buildCreditTile(credits[index], context),
                         ),
                 ),
                 Padding(

@@ -10,6 +10,7 @@ class CustomerPaymentsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Consumer<DataStore>(
       builder: (context, dataStore, child) {
         final user = dataStore.state.currentUser;
@@ -19,7 +20,7 @@ class CustomerPaymentsPage extends StatelessWidget {
           ..sort((a, b) => b.date.compareTo(a.date));
 
         return Scaffold(
-          backgroundColor: Colors.white,
+          backgroundColor: isDark ? Colors.grey.shade900 : Colors.white,
           body: RefreshIndicator(
             onRefresh: () async {
               try {
@@ -44,12 +45,12 @@ class CustomerPaymentsPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Payment History',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                      color: isDark ? Colors.grey.shade100 : Colors.black87,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -57,16 +58,16 @@ class CustomerPaymentsPage extends StatelessWidget {
                     'Track all your payment transactions',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Colors.grey.shade600,
+                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                     ),
                   ),
                   const SizedBox(height: 20),
                   if (payments.isEmpty)
-                    _buildEmptyState()
+                    _buildEmptyState(isDark)
                   else
                     ...payments.map((payment) => Padding(
                       padding: const EdgeInsets.only(bottom: 12.0),
-                      child: _buildPaymentCard(payment),
+                      child: _buildPaymentCard(payment, isDark),
                     )),
                 ],
               ),
@@ -77,18 +78,18 @@ class CustomerPaymentsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool isDark) {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: Container(
           padding: const EdgeInsets.all(40),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDark ? Colors.grey.shade800 : Colors.white,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
+                color: Colors.grey.withOpacity(isDark ? 0.3 : 0.1),
                 blurRadius: 10,
                 offset: const Offset(0, 5),
               ),
@@ -100,7 +101,7 @@ class CustomerPaymentsPage extends StatelessWidget {
               Icon(
                 Icons.payment,
                 size: 64,
-                color: Colors.grey.shade400,
+                color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
               ),
               const SizedBox(height: 16),
               Text(
@@ -108,7 +109,7 @@ class CustomerPaymentsPage extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w500,
-                  color: Colors.grey.shade600,
+                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
                 ),
               ),
               const SizedBox(height: 8),
@@ -116,7 +117,7 @@ class CustomerPaymentsPage extends StatelessWidget {
                 'You haven\'t made any payments yet.',
                 style: TextStyle(
                   fontSize: 14,
-                  color: Colors.grey.shade500,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -127,7 +128,7 @@ class CustomerPaymentsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildPaymentCard(Payment payment) {
+  Widget _buildPaymentCard(Payment payment, bool isDark) {
     // Try to find the owning credit and show its store name
     final dataStore = DataStore.instance;
     CreditEntry? credit;
@@ -139,7 +140,13 @@ class CustomerPaymentsPage extends StatelessWidget {
       credit = null;
     }
 
-    Widget storeNameWidget = const Text('Unknown Store', style: TextStyle(fontSize: 12, color: Colors.grey));
+    Widget storeNameWidget = Text(
+      'Unknown Store', 
+      style: TextStyle(
+        fontSize: 12, 
+        color: isDark ? Colors.grey.shade400 : Colors.grey
+      ),
+    );
     if (credit != null && credit.storeId != null && credit.storeId!.isNotEmpty) {
       Future<String> getStoreName(String storeId) async {
         // Check if it's the current user (store owner viewing their own store)
@@ -160,7 +167,10 @@ class CustomerPaymentsPage extends StatelessWidget {
               : 'Unknown Store';
           return Text(
             'Store: $storeName',
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(
+              fontSize: 12, 
+              color: isDark ? Colors.grey.shade400 : Colors.grey
+            ),
             overflow: TextOverflow.ellipsis,
             maxLines: 1,
           );
@@ -170,17 +180,17 @@ class CustomerPaymentsPage extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? Colors.grey.shade800 : Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.grey.withOpacity(isDark ? 0.3 : 0.1),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
         border: Border.all(
-          color: Colors.green.withOpacity(0.2),
+          color: Colors.green.withOpacity(isDark ? 0.4 : 0.2),
           width: 1,
         ),
       ),
@@ -203,11 +213,12 @@ class CustomerPaymentsPage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Payment Received',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.grey.shade100 : Colors.black87,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -237,7 +248,7 @@ class CustomerPaymentsPage extends StatelessWidget {
                 _formatDate(payment.date),
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey.shade600,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                 ),
               ),
             ],

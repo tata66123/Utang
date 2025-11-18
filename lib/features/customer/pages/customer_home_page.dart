@@ -8,6 +8,7 @@ class CustomerHomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Consumer<DataStore>(
       builder: (context, dataStore, child) {
         final user = dataStore.state.currentUser;
@@ -22,10 +23,15 @@ class CustomerHomePage extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [
-                Colors.green.shade50,
-                Colors.white,
-              ],
+              colors: isDark
+                  ? [
+                      Colors.blue.shade900.withOpacity(0.3),
+                      Colors.grey.shade900,
+                    ]
+                  : [
+                      Colors.blue.shade50,
+                      Colors.white,
+                    ],
             ),
           ),
           child: RefreshIndicator(
@@ -52,11 +58,11 @@ class CustomerHomePage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildWelcomeHeader(user),
+                  _buildWelcomeHeader(user, isDark),
                   const SizedBox(height: 24),
-                  _buildQuickStatsCards(totalBalance, overdueCredits, dueSoonCredits),
+                  _buildQuickStatsCards(totalBalance, overdueCredits, dueSoonCredits, isDark),
                   const SizedBox(height: 24),
-                  _buildRecentActivitySection(dataStore, user.id),
+                  _buildRecentActivitySection(dataStore, user.id, isDark),
                 ],
               ),
             ),
@@ -66,17 +72,17 @@ class CustomerHomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildWelcomeHeader(User user) {
+  Widget _buildWelcomeHeader(User user, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.green.shade400, Colors.green.shade600],
+          colors: [Colors.blue.shade400, Colors.blue.shade600],
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.green.withOpacity(0.3),
+            color: Colors.blue.withOpacity(0.3),
             blurRadius: 10,
             offset: const Offset(0, 5),
           ),
@@ -122,16 +128,16 @@ class CustomerHomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildQuickStatsCards(double totalBalance, List<CreditEntry> overdueCredits, List<CreditEntry> dueSoonCredits) {
+  Widget _buildQuickStatsCards(double totalBalance, List<CreditEntry> overdueCredits, List<CreditEntry> dueSoonCredits, bool isDark) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Account Overview',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: Colors.black87,
+            color: isDark ? Colors.grey.shade100 : Colors.black87,
           ),
         ),
         const SizedBox(height: 16),
@@ -143,6 +149,7 @@ class CustomerHomePage extends StatelessWidget {
                 '₱${totalBalance.toStringAsFixed(2)}',
                 Icons.account_balance_wallet,
                 totalBalance > 0 ? Colors.red.shade400 : Colors.green.shade400,
+                isDark,
               ),
             ),
             const SizedBox(width: 12),
@@ -152,6 +159,7 @@ class CustomerHomePage extends StatelessWidget {
                 overdueCredits.length.toString(),
                 Icons.warning,
                 Colors.red.shade400,
+                isDark,
               ),
             ),
           ],
@@ -165,6 +173,7 @@ class CustomerHomePage extends StatelessWidget {
                 dueSoonCredits.length.toString(),
                 Icons.schedule,
                 Colors.orange.shade400,
+                isDark,
               ),
             ),
             const SizedBox(width: 12),
@@ -174,6 +183,7 @@ class CustomerHomePage extends StatelessWidget {
                 totalBalance > 0 ? 'Outstanding' : 'All Clear',
                 Icons.check_circle,
                 totalBalance > 0 ? Colors.orange.shade400 : Colors.green.shade400,
+                isDark,
               ),
             ),
           ],
@@ -182,15 +192,15 @@ class CustomerHomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard(String title, String value, IconData icon, Color color, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? Colors.grey.shade800 : Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.grey.withOpacity(isDark ? 0.3 : 0.1),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -211,9 +221,9 @@ class CustomerHomePage extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
-              color: Colors.grey,
+              color: isDark ? Colors.grey.shade400 : Colors.grey,
             ),
             textAlign: TextAlign.center,
           ),
@@ -222,7 +232,7 @@ class CustomerHomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildRecentActivitySection(DataStore dataStore, String userId) {
+  Widget _buildRecentActivitySection(DataStore dataStore, String userId, bool isDark) {
     final recentPayments = dataStore.getCustomerPayments(userId);
     final recentCredits = dataStore.getAllStoreCreditsForCustomer(userId);
 
@@ -238,12 +248,12 @@ class CustomerHomePage extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Recent Activity',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
-            color: Colors.black87,
+            color: isDark ? Colors.grey.shade100 : Colors.black87,
           ),
         ),
         const SizedBox(height: 16),
@@ -256,7 +266,8 @@ class CustomerHomePage extends StatelessWidget {
                 '₱${p.amount.toStringAsFixed(2)}',
                 _formatDate(p.date),
                 Icons.payment,
-                Colors.green,
+                Colors.blue,
+                isDark,
               );
             } else if (ev.credit != null) {
               final c = ev.credit!;
@@ -266,6 +277,7 @@ class CustomerHomePage extends StatelessWidget {
                 _formatDate(c.date),
                 Icons.add_circle,
                 Colors.blue,
+                isDark,
               );
             } else {
               return const SizedBox.shrink();
@@ -275,13 +287,13 @@ class CustomerHomePage extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.grey.shade50,
+              color: isDark ? Colors.grey.shade800 : Colors.grey.shade50,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Center(
+            child: Center(
               child: Text(
                 'No recent activity',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey),
               ),
             ),
           ),
@@ -289,21 +301,23 @@ class CustomerHomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildActivityItem(String title, String subtitle, String date, IconData icon, Color color) {
+  Widget _buildActivityItem(String title, String subtitle, String date, IconData icon, Color color, bool isDark) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? Colors.grey.shade800 : Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: isDark ? Colors.grey.shade700 : Colors.grey.shade200,
+        ),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withOpacity(isDark ? 0.2 : 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, color: color, size: 20),
@@ -315,16 +329,17 @@ class CustomerHomePage extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w500,
                     fontSize: 14,
+                    color: isDark ? Colors.grey.shade100 : Colors.black87,
                   ),
                 ),
                 Text(
                   subtitle,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey,
+                    color: isDark ? Colors.grey.shade400 : Colors.grey,
                   ),
                 ),
               ],
@@ -332,9 +347,9 @@ class CustomerHomePage extends StatelessWidget {
           ),
           Text(
             date,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
-              color: Colors.grey,
+              color: isDark ? Colors.grey.shade400 : Colors.grey,
             ),
           ),
         ],

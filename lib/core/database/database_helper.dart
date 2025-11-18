@@ -693,4 +693,88 @@ class DatabaseHelper {
     await db.delete('payments');
     await db.delete('sync_status');
   }
+
+  /// Clear all transaction data (credits, payments) for a specific store
+  /// Also removes customers that only had credits with this store
+  /// Does NOT delete users or other stores' data
+  Future<void> clearStoreTransactionData(String storeId) async {
+    final db = await database;
+    
+    // Step 1: Get all credit IDs for this store (before deleting)
+    final creditMaps = await db.query(
+      'credits',
+      columns: ['id', 'customerId'],
+      where: 'storeId = ?',
+      whereArgs: [storeId],
+    );
+    final Set<String> storeCreditIds = creditMaps.map((m) => m['id'] as String).toSet();
+    final Set<String> storeCustomerIds = creditMaps
+        .map((m) => m['customerId'] as String?)
+        .where((id) => id != null)
+        .cast<String>()
+        .toSet();
+    
+    // Step 2: Delete all payments for credits belonging to this store
+    if (storeCreditIds.isNotEmpty) {
+      final placeholders = storeCreditIds.map((_) => '?').join(',');
+      await db.delete(
+        'payments',
+        where: 'creditId IN ($placeholders)',
+        whereArgs: storeCreditIds.toList(),
+      );
+    }
+    
+    // Step 3: Delete all credits for this store
+    await db.delete(
+      'credits',
+      where: 'storeId = ?',
+      whereArgs: [storeId],
+    );
+    
+    // Step 4: Delete customers that:
+    // - Have storeId = this storeId (belong to this store)
+    // - OR have no remaining credits after deletion (were only associated with this store)
+    final List<String> customersToDelete = [];
+    
+    // First, get all customers that belong to this store
+    final storeCustomers = await db.query(
+      'customers',
+      where: 'storeId = ?',
+      whereArgs: [storeId],
+    );
+    for (final customer in storeCustomers) {
+      customersToDelete.add(customer['id'] as String);
+    }
+    
+    // Then, check customers that had credits with this store but might have other credits
+    // If they have no remaining credits, delete them too
+    for (final customerId in storeCustomerIds) {
+      // Check if this customer has any remaining credits
+      final remainingCredits = await db.query(
+        'credits',
+        columns: ['id'],
+        where: 'customerId = ?',
+        whereArgs: [customerId],
+        limit: 1,
+      );
+      
+      // If no remaining credits, add to deletion list (if not already there)
+      if (remainingCredits.isEmpty && !customersToDelete.contains(customerId)) {
+        customersToDelete.add(customerId);
+      }
+    }
+    
+    // Step 5: Delete the identified customers
+    if (customersToDelete.isNotEmpty) {
+      final placeholders = customersToDelete.map((_) => '?').join(',');
+      await db.delete(
+        'customers',
+        where: 'id IN ($placeholders)',
+        whereArgs: customersToDelete,
+      );
+    }
+    
+    print('Cleared transaction data for store: $storeId');
+    print('Deleted ${storeCreditIds.length} credits, ${customersToDelete.length} customers');
+  }
 }

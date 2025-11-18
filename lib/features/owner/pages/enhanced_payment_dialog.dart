@@ -540,39 +540,46 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
   }
 
   Widget _buildTotalRow(String label, double amount) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Flexible(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade700,
+    return Builder(
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isDark ? Colors.grey.shade700 : Colors.grey.shade200,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              overflow: TextOverflow.ellipsis,
-            ),
+              const SizedBox(width: 8),
+              Text(
+                '₱${amount.toStringAsFixed(2)}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: isDark ? Colors.green.shade300 : Colors.green,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Text(
-            '₱${amount.toStringAsFixed(2)}',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: Colors.green,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -583,6 +590,7 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
   @override
   Widget build(BuildContext context) {
     final credits = _customerCredits;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (credits.isEmpty) {
       return AlertDialog(
@@ -606,8 +614,14 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+                color: isDark 
+                    ? Colors.green.shade900.withOpacity(0.3)
+                    : Colors.green.shade50,
+                border: Border(
+                  bottom: BorderSide(
+                    color: isDark ? Colors.grey.shade700 : Colors.grey.shade300
+                  ),
+                ),
               ),
               child: Row(
                 children: [
@@ -617,9 +631,10 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                       children: [
                         Text(
                           widget.customer.name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.grey.shade100 : Colors.black87,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -627,7 +642,7 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                         Text(
                           'Outstanding: ₱${widget.store.totalOutstandingForCustomer(widget.customer.id).toStringAsFixed(2)}',
                           style: TextStyle(
-                            color: Colors.grey.shade600,
+                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                             fontSize: 14,
                           ),
                           overflow: TextOverflow.ellipsis,
@@ -658,7 +673,7 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade700,
+                          color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -693,7 +708,7 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.grey.shade700,
+                                color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -746,8 +761,12 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                border: Border(top: BorderSide(color: Colors.grey.shade300)),
+                color: isDark ? Colors.grey.shade800 : Colors.grey.shade50,
+                border: Border(
+                  top: BorderSide(
+                    color: isDark ? Colors.grey.shade700 : Colors.grey.shade300
+                  ),
+                ),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,

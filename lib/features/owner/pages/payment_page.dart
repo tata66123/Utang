@@ -65,11 +65,10 @@ class _PaymentPageState extends State<PaymentPage> {
 
   @override
   Widget build(BuildContext context) {
-
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: widget.hideAppBar ? null : AppBar(
         title: const Text('Record Payment'),
-        backgroundColor: Colors.green,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
@@ -167,7 +166,7 @@ class _PaymentPageState extends State<PaymentPage> {
                         const SizedBox(height: 16),
                         SizedBox(
                           width: double.infinity,
-                          child: ElevatedButton.icon(
+                            child: ElevatedButton.icon(
                             onPressed: (_selectedCustomerId == null)
                                 ? null
                                 : () {
@@ -178,10 +177,6 @@ class _PaymentPageState extends State<PaymentPage> {
                                   },
                             icon: const Icon(Icons.payments),
                             label: const Text('Open Payment Dialog'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
-                            ),
                           ),
                         ),
                       ],
@@ -237,14 +232,22 @@ class _PaymentPageState extends State<PaymentPage> {
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: ListTile(
                                   leading: CircleAvatar(
-                                    backgroundColor: hasOverdue ? Colors.red.shade100 : Colors.blue.shade100,
+                                    backgroundColor: hasOverdue 
+                                        ? (isDark ? Colors.red.shade900.withOpacity(0.5) : Colors.red.shade100)
+                                        : (isDark ? Colors.blue.shade800.withOpacity(0.5) : Colors.blue.shade100),
                                     child: Icon(
                                       hasOverdue ? Icons.warning : Icons.person,
                                       color: hasOverdue ? Colors.red : Colors.blue,
                                     ),
                                   ),
-                                  title: Text(customerName),
-                                  subtitle: Text('Balance: ₱${totalBalance.toStringAsFixed(2)}'),
+                                  title: Text(
+                                    customerName,
+                                    style: TextStyle(color: isDark ? Colors.grey.shade100 : Colors.black87),
+                                  ),
+                                  subtitle: Text(
+                                    'Balance: ₱${totalBalance.toStringAsFixed(2)}',
+                                    style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                                  ),
                                   trailing: hasOverdue
                                       ? const Icon(Icons.warning, color: Colors.red)
                                       : null,

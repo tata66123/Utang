@@ -13,7 +13,7 @@ class SummaryPage extends StatelessWidget {
         .toList();
     final double total = store.totalOutstanding();
     return Scaffold(
-      appBar: AppBar(title: const Text('Outstanding Summary'), backgroundColor: Colors.blue),
+      appBar: AppBar(title: const Text('Outstanding Summary')),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: <Widget>[

@@ -130,28 +130,6 @@ class _HomePageState extends State<HomePage> {
                 );
               },
             ),
-            // Sync Now Button
-            Consumer<DataStore>(
-              builder: (context, store, child) {
-                return ListTile(
-                  leading: store.isSyncing 
-                      ? SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                          ),
-                        )
-                      : const Icon(Icons.sync, color: Colors.blue),
-                  title: const Text("Sync Now"),
-                  subtitle: store.isSyncing 
-                      ? const Text('Syncing data...')
-                      : const Text('Sync data with cloud'),
-                  onTap: store.isSyncing ? null : () => store.syncNow(),
-                );
-              },
-            ),
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text("Settings"),
@@ -1054,11 +1032,36 @@ class _DashboardBody extends StatelessWidget {
 
     return Consumer<DataStore>(
       builder: (context, dataStore, child) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
+        return RefreshIndicator(
+          onRefresh: () async {
+            // Manual refresh - sync data when user pulls down
+            try {
+              await dataStore.syncNow();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Data refreshed successfully'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Refresh error: $e'),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            }
+          },
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(), // Enable pull-to-refresh
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
           // Welcome section with store name
           Container(
             padding: const EdgeInsets.all(16.0),
@@ -1439,8 +1442,9 @@ class _DashboardBody extends StatelessWidget {
             },
           ),
         ],
-      ),
-    );
+            ),
+          ),
+        );
       },
     );
   }

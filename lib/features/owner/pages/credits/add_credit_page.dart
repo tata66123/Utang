@@ -468,7 +468,6 @@ class _AddCreditPageState extends State<AddCreditPage> {
         title: Text(widget.customer != null 
             ? 'Add Credit - ${widget.customer!.name}' 
             : 'Add New Credit'),
-        backgroundColor: Colors.blue,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
@@ -945,33 +944,45 @@ class _AddCreditPageState extends State<AddCreditPage> {
                             ),
                             const SizedBox(height: 8),
                             // Total Amount Display
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.blue.shade200),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'Total Amount:',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
+                            Builder(
+                              builder: (context) {
+                                final isDark = Theme.of(context).brightness == Brightness.dark;
+                                return Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: isDark 
+                                        ? Colors.blue.shade900.withOpacity(0.3)
+                                        : Colors.blue.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isDark 
+                                          ? Colors.blue.shade700
+                                          : Colors.blue.shade200
                                     ),
                                   ),
-                                  Text(
-                                    '₱${_calculateTotal(index).toStringAsFixed(2)}',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                      color: Colors.blue.shade700,
-                                    ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        'Total Amount:',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: isDark ? Colors.grey.shade100 : Colors.black87,
+                                        ),
+                                      ),
+                                      Text(
+                                        '₱${_calculateTotal(index).toStringAsFixed(2)}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                          color: isDark ? Colors.blue.shade200 : Colors.blue.shade700,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              ),
+                                );
+                              },
                             ),
                             if (index < _items.length - 1) const SizedBox(height: 16),
                           ],

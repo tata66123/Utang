@@ -7,6 +7,7 @@ class CustomerNotificationsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Consumer<DataStore>(
       builder: (context, dataStore, child) {
         final user = dataStore.state.currentUser;
@@ -16,18 +17,18 @@ class CustomerNotificationsPage extends StatelessWidget {
         final dueSoonCredits = dataStore.getCustomerDueSoonCredits(user.id);
 
         return Scaffold(
-          backgroundColor: Colors.white,
+          backgroundColor: isDark ? Colors.grey.shade900 : Colors.white,
           body: SingleChildScrollView(
             padding: const EdgeInsets.all(20.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Notifications',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                    color: isDark ? Colors.grey.shade100 : Colors.black87,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -35,7 +36,7 @@ class CustomerNotificationsPage extends StatelessWidget {
                   'Stay updated with your account status',
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.grey.shade600,
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -47,6 +48,7 @@ class CustomerNotificationsPage extends StatelessWidget {
                       'You have ${overdueCredits.length} overdue credit(s) that need immediate attention.',
                       Icons.warning,
                       Colors.red,
+                      isDark,
                     ),
                   ),
                 ],
@@ -58,11 +60,12 @@ class CustomerNotificationsPage extends StatelessWidget {
                       'You have ${dueSoonCredits.length} credit(s) due within 3 days.',
                       Icons.schedule,
                       Colors.orange,
+                      isDark,
                     ),
                   ),
                 ],
                 if (overdueCredits.isEmpty && dueSoonCredits.isEmpty)
-                  _buildAllClearCard(),
+                  _buildAllClearCard(isDark),
               ],
             ),
           ),
@@ -71,21 +74,21 @@ class CustomerNotificationsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildNotificationCard(String title, String message, IconData icon, Color color) {
+  Widget _buildNotificationCard(String title, String message, IconData icon, Color color, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? Colors.grey.shade800 : Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.grey.withOpacity(isDark ? 0.3 : 0.1),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
         border: Border.all(
-          color: color.withOpacity(0.2),
+          color: color.withOpacity(isDark ? 0.4 : 0.2),
           width: 1,
         ),
       ),
@@ -115,9 +118,9 @@ class CustomerNotificationsPage extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   message,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 14,
-                    color: Colors.black87,
+                    color: isDark ? Colors.grey.shade300 : Colors.black87,
                   ),
                 ),
               ],
@@ -128,15 +131,15 @@ class CustomerNotificationsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildAllClearCard() {
+  Widget _buildAllClearCard(bool isDark) {
     return Container(
       padding: const EdgeInsets.all(40),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? Colors.grey.shade800 : Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.grey.withOpacity(isDark ? 0.3 : 0.1),
             blurRadius: 10,
             offset: const Offset(0, 5),
           ),
@@ -147,7 +150,7 @@ class CustomerNotificationsPage extends StatelessWidget {
           Icon(
             Icons.check_circle,
             size: 64,
-            color: Colors.green.shade400,
+            color: isDark ? Colors.green.shade300 : Colors.green.shade400,
           ),
           const SizedBox(height: 16),
           Text(
@@ -155,7 +158,7 @@ class CustomerNotificationsPage extends StatelessWidget {
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Colors.green.shade600,
+              color: isDark ? Colors.green.shade300 : Colors.green.shade600,
             ),
           ),
           const SizedBox(height: 8),
@@ -163,7 +166,7 @@ class CustomerNotificationsPage extends StatelessWidget {
             'No notifications at this time. Your account is up to date.',
             style: TextStyle(
               fontSize: 14,
-              color: Colors.grey.shade600,
+              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
             ),
             textAlign: TextAlign.center,
           ),

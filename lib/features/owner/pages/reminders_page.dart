@@ -72,8 +72,9 @@ class RemindersPage extends StatelessWidget {
       list.sort((a, b) => (a.dueDate!).compareTo(b.dueDate!));
     }
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      appBar: AppBar(title: const Text('Due Dates & Reminders'), backgroundColor: Colors.blue),
+      appBar: AppBar(title: const Text('Due Dates & Reminders')),
       body: dueByCustomer.isEmpty
           ? const Center(child: Text('No upcoming or overdue items'))
           : ListView.builder(
@@ -88,14 +89,25 @@ class RemindersPage extends StatelessWidget {
                 return Card(
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: overdueCount > 0 ? Colors.red.shade100 : Colors.orange.shade100,
+                      backgroundColor: overdueCount > 0 
+                          ? (isDark ? Colors.red.shade900.withOpacity(0.5) : Colors.red.shade100)
+                          : (isDark ? Colors.orange.shade900.withOpacity(0.5) : Colors.orange.shade100),
                       child: Icon(
                         overdueCount > 0 ? Icons.warning : Icons.event,
                         color: overdueCount > 0 ? Colors.red : Colors.orange,
                       ),
                     ),
-                    title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('${dueList.length} item(s) due'),
+                    title: Text(
+                      c.name, 
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.grey.shade100 : Colors.black87,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${dueList.length} item(s) due',
+                      style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                    ),
                     trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                     onTap: () => _openDueDialog(context, c, dueList),
                   ),
@@ -106,6 +118,7 @@ class RemindersPage extends StatelessWidget {
   }
 
   void _openDueDialog(BuildContext context, Customer customer, List<CreditEntry> dueList) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (ctx) {
@@ -119,16 +132,23 @@ class RemindersPage extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
+                    color: isDark 
+                        ? Colors.blue.shade900.withOpacity(0.3)
+                        : Colors.blue.shade50,
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                   ),
                   child: Row(
                     children: [
                       CircleAvatar(
-                        backgroundColor: Colors.blue.shade100,
+                        backgroundColor: isDark 
+                            ? Colors.blue.shade800.withOpacity(0.5)
+                            : Colors.blue.shade100,
                         child: Text(
                           customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
-                          style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            color: isDark ? Colors.blue.shade200 : Colors.blue.shade700, 
+                            fontWeight: FontWeight.bold
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -136,8 +156,20 @@ class RemindersPage extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(customer.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            Text('Due items (${dueList.length})', style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+                            Text(
+                              customer.name, 
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.grey.shade100 : Colors.black87,
+                              ),
+                            ),
+                            Text(
+                              'Due items (${dueList.length})', 
+                              style: TextStyle(
+                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade700, 
+                                fontSize: 12
+                              ),
+                            ),
                           ],
                         ),
                       ),

@@ -59,16 +59,11 @@ class _ProjectAppState extends State<ProjectApp> with WidgetsBindingObserver {
     super.didChangeAppLifecycleState(state);
     final dataStore = ServiceLocator().dataStore;
     
-    // When app comes to foreground, restart listeners and refresh data
+    // When app comes to foreground, restart listeners (they may have disconnected in background)
+    // Real-time listeners will automatically fetch updates, no need for manual refresh
     if (state == AppLifecycleState.resumed && dataStore.state.currentUser != null) {
-      // Restart real-time listeners (they may have disconnected in background)
+      // Restart real-time listeners - they will automatically sync when changes occur
       dataStore.restartRealtimeSync();
-      
-      // Refresh data from database and Firebase
-      dataStore.refreshData().then((_) {
-        // Also refresh from Firebase if online
-        dataStore.refreshCreditsFromFirebase();
-      });
     }
   }
 

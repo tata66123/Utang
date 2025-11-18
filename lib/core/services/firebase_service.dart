@@ -487,6 +487,110 @@ class FirebaseService {
     await _database.child('notifications').remove();
   }
 
+  /// Clear all transaction data (credits, payments) for a specific store
+  /// Also removes customers that only had credits with this store
+  /// Does NOT delete users or other stores' data
+  Future<void> clearStoreTransactionData(String storeId) async {
+    await initialize();
+    
+    try {
+      // Step 1: Get all credits for this store
+      final creditsSnapshot = await _database.child('credits').get();
+      final List<String> storeCreditIds = [];
+      final Set<String> storeCustomerIds = {};
+      
+      if (creditsSnapshot.exists && creditsSnapshot.value != null) {
+        final credits = Map<String, dynamic>.from(creditsSnapshot.value as Map);
+        for (final entry in credits.entries) {
+          final creditData = Map<String, dynamic>.from(entry.value as Map);
+          if (creditData['storeId'] == storeId) {
+            storeCreditIds.add(entry.key);
+            final customerId = creditData['customerId'] as String?;
+            if (customerId != null) {
+              storeCustomerIds.add(customerId);
+            }
+          }
+        }
+      }
+      
+      // Step 2: Delete all payments for credits belonging to this store
+      if (storeCreditIds.isNotEmpty) {
+        final paymentsSnapshot = await _database.child('payments').get();
+        if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
+          final payments = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
+          for (final entry in payments.entries) {
+            final paymentData = Map<String, dynamic>.from(entry.value as Map);
+            final paymentCreditId = paymentData['creditId'] as String?;
+            if (paymentCreditId != null && storeCreditIds.contains(paymentCreditId)) {
+              await _database.child('payments').child(entry.key).remove();
+            }
+          }
+        }
+      }
+      
+      // Step 3: Delete all credits for this store
+      for (final creditId in storeCreditIds) {
+        await _database.child('credits').child(creditId).remove();
+      }
+      
+      // Step 4: Check which customers should be deleted
+      // - Customers with storeId = this storeId
+      // - Customers that have no remaining credits after deletion
+      final customersSnapshot = await _database.child('customers').get();
+      final List<String> customersToDelete = [];
+      
+      if (customersSnapshot.exists && customersSnapshot.value != null) {
+        final customers = Map<String, dynamic>.from(customersSnapshot.value as Map);
+        
+        // First, collect customers that belong to this store
+        for (final entry in customers.entries) {
+          final customerData = Map<String, dynamic>.from(entry.value as Map);
+          final customerStoreId = customerData['storeId'] as String?;
+          if (customerStoreId == storeId) {
+            customersToDelete.add(entry.key);
+          }
+        }
+        
+        // Then, check customers that had credits with this store
+        // If they have no remaining credits, delete them too
+        for (final customerId in storeCustomerIds) {
+          if (customersToDelete.contains(customerId)) {
+            continue; // Already marked for deletion
+          }
+          
+          // Check if this customer has any remaining credits
+          final remainingCreditsSnapshot = await _database.child('credits').get();
+          bool hasRemainingCredits = false;
+          if (remainingCreditsSnapshot.exists && remainingCreditsSnapshot.value != null) {
+            final remainingCredits = Map<String, dynamic>.from(remainingCreditsSnapshot.value as Map);
+            for (final creditEntry in remainingCredits.entries) {
+              final creditData = Map<String, dynamic>.from(creditEntry.value as Map);
+              if (creditData['customerId'] == customerId) {
+                hasRemainingCredits = true;
+                break;
+              }
+            }
+          }
+          
+          if (!hasRemainingCredits) {
+            customersToDelete.add(customerId);
+          }
+        }
+      }
+      
+      // Step 5: Delete the identified customers
+      for (final customerId in customersToDelete) {
+        await _database.child('customers').child(customerId).remove();
+      }
+      
+      print('Cleared Firebase transaction data for store: $storeId');
+      print('Deleted ${storeCreditIds.length} credits, ${customersToDelete.length} customers');
+    } catch (e) {
+      print('Error clearing store transaction data from Firebase: $e');
+      rethrow;
+    }
+  }
+
   // Filtered fetch helpers
   Future<List<Customer>> getCustomersForStore(String storeId) async {
     await initialize();

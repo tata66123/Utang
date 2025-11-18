@@ -49,10 +49,10 @@ class _CustomersPageState extends State<CustomersPage> {
         final List<Customer> allCustomers = store.state.customers;
         final filteredCustomers = _getFilteredCustomers(allCustomers, _searchController.text);
 
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         return Scaffold(
           appBar: AppBar(
             title: const Text('Customers'),
-            backgroundColor: Colors.blue,
           ),
           body: Column(
             children: [
@@ -123,11 +123,13 @@ class _CustomersPageState extends State<CustomersPage> {
                                 // Customer Header
                                 ListTile(
                                   leading: CircleAvatar(
-                                    backgroundColor: Colors.blue.shade100,
+                                    backgroundColor: isDark 
+                                        ? Colors.blue.shade800.withOpacity(0.5)
+                                        : Colors.blue.shade100,
                                     child: Text(
                                       customer.name[0].toUpperCase(),
                                       style: TextStyle(
-                                        color: Colors.blue.shade700,
+                                        color: isDark ? Colors.blue.shade200 : Colors.blue.shade700,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
@@ -327,22 +329,30 @@ class _CustomersPageState extends State<CustomersPage> {
             constraints: const BoxConstraints(maxWidth: 600, maxHeight: 700),
             child: StatefulBuilder(
               builder: (context, setLocalState) {
+                final dialogIsDark = Theme.of(context).brightness == Brightness.dark;
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
+                        color: dialogIsDark 
+                            ? Colors.blue.shade900.withOpacity(0.3)
+                            : Colors.blue.shade50,
                         borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
                       ),
                       child: Row(
                         children: [
                           CircleAvatar(
-                            backgroundColor: Colors.blue.shade100,
+                            backgroundColor: dialogIsDark 
+                                ? Colors.blue.shade800.withOpacity(0.5)
+                                : Colors.blue.shade100,
                             child: Text(
                               customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?',
-                              style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                color: dialogIsDark ? Colors.blue.shade200 : Colors.blue.shade700, 
+                                fontWeight: FontWeight.bold
+                              ),
                             ),
                           ),
                           const SizedBox(width: 12),

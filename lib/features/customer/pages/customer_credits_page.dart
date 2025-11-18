@@ -10,6 +10,7 @@ class CustomerCreditsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Consumer<DataStore>(
       builder: (context, dataStore, child) {
         final user = dataStore.state.currentUser;
@@ -19,7 +20,7 @@ class CustomerCreditsPage extends StatelessWidget {
           ..sort((a, b) => b.date.compareTo(a.date));
 
         return Scaffold(
-          backgroundColor: Colors.white,
+          backgroundColor: isDark ? Colors.grey.shade900 : Colors.white,
           body: RefreshIndicator(
             onRefresh: () async {
               try {
@@ -44,12 +45,12 @@ class CustomerCreditsPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Your Credits',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                      color: isDark ? Colors.grey.shade100 : Colors.black87,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -57,16 +58,16 @@ class CustomerCreditsPage extends StatelessWidget {
                     'View all your credit transactions',
                     style: TextStyle(
                       fontSize: 16,
-                      color: Colors.grey.shade600,
+                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                     ),
                   ),
                   const SizedBox(height: 20),
                   if (allCredits.isEmpty)
-                    _buildEmptyState()
+                    _buildEmptyState(isDark)
                   else
                     ...allCredits.map((credit) => Padding(
                       padding: const EdgeInsets.only(bottom: 12.0),
-                      child: _buildCreditCard(credit),
+                      child: _buildCreditCard(credit, isDark),
                     )),
                 ],
               ),
@@ -77,18 +78,18 @@ class CustomerCreditsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool isDark) {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: Container(
           padding: const EdgeInsets.all(40),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDark ? Colors.grey.shade800 : Colors.white,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
+                color: Colors.grey.withOpacity(isDark ? 0.3 : 0.1),
                 blurRadius: 10,
                 offset: const Offset(0, 5),
               ),
@@ -100,7 +101,7 @@ class CustomerCreditsPage extends StatelessWidget {
               Icon(
                 Icons.credit_card_off,
                 size: 64,
-                color: Colors.grey.shade400,
+                color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
               ),
               const SizedBox(height: 16),
               Text(
@@ -108,7 +109,7 @@ class CustomerCreditsPage extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w500,
-                  color: Colors.grey.shade600,
+                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade600,
                 ),
               ),
               const SizedBox(height: 8),
@@ -116,7 +117,7 @@ class CustomerCreditsPage extends StatelessWidget {
                 'You don\'t have any credits yet.',
                 style: TextStyle(
                   fontSize: 14,
-                  color: Colors.grey.shade500,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -127,11 +128,17 @@ class CustomerCreditsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildCreditCard(CreditEntry credit) {
+  Widget _buildCreditCard(CreditEntry credit, bool isDark) {
     final status = credit.balance <= 0 ? 'Paid' : 'Unpaid';
     final statusColor = credit.balance <= 0 ? Colors.green : Colors.red;
 
-    Widget storeNameWidget = const Text('Unknown Store', style: TextStyle(fontSize: 12, color: Colors.grey));
+    Widget storeNameWidget = Text(
+      'Unknown Store', 
+      style: TextStyle(
+        fontSize: 12, 
+        color: isDark ? Colors.grey.shade400 : Colors.grey
+      ),
+    );
     if (credit.storeId != null && credit.storeId!.isNotEmpty) {
       Future<String> getStoreName(String storeId) async {
         final ds = DataStore.instance;
@@ -153,7 +160,10 @@ class CustomerCreditsPage extends StatelessWidget {
               : 'Unknown Store';
           return Text(
             'Store: $storeName',
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(
+              fontSize: 12, 
+              color: isDark ? Colors.grey.shade400 : Colors.grey
+            ),
             overflow: TextOverflow.ellipsis,
             maxLines: 1,
           );
@@ -164,17 +174,17 @@ class CustomerCreditsPage extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? Colors.grey.shade800 : Colors.white,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.grey.withOpacity(isDark ? 0.3 : 0.1),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
         border: Border.all(
-          color: statusColor.withOpacity(0.2),
+          color: statusColor.withOpacity(isDark ? 0.4 : 0.2),
           width: 1,
         ),
       ),
@@ -186,16 +196,17 @@ class CustomerCreditsPage extends StatelessWidget {
               Expanded(
                 child: Text(
                   credit.item,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.grey.shade100 : Colors.black87,
                   ),
                 ),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
+                  color: statusColor.withOpacity(isDark ? 0.2 : 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -222,14 +233,15 @@ class CustomerCreditsPage extends StatelessWidget {
                       'Amount (Qty: ${credit.quantity} × ₱${credit.effectiveUnitPrice.toStringAsFixed(2)})',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey.shade600,
+                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                       ),
                     ),
                     Text(
                       '₱${credit.amount.toStringAsFixed(2)}',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
+                        color: isDark ? Colors.grey.shade100 : Colors.black87,
                       ),
                     ),
                   ],
@@ -243,7 +255,7 @@ class CustomerCreditsPage extends StatelessWidget {
                       'Balance',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey.shade600,
+                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                       ),
                     ),
                     Text(
@@ -266,14 +278,14 @@ class CustomerCreditsPage extends StatelessWidget {
                 Icon(
                   Icons.calendar_today,
                   size: 16,
-                  color: Colors.grey.shade600,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                 ),
                 const SizedBox(width: 4),
                 Text(
                   'Due: ${_formatDate(credit.dueDate!)}',
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey.shade600,
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                   ),
                 ),
                 if (credit.isOverdue) ...[

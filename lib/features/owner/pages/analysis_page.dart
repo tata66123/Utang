@@ -33,8 +33,9 @@ class AnalysisPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final DataStore store = DataStore.instance;
     final List<Customer> customers = store.state.customers;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      appBar: AppBar(title: const Text('Payment Behavior Analysis'), backgroundColor: Colors.blue),
+      appBar: AppBar(title: const Text('Payment Behavior Analysis')),
       body: customers.isEmpty
           ? const Center(child: Text('No customers'))
           : ListView.builder(
@@ -50,15 +51,21 @@ class AnalysisPage extends StatelessWidget {
                 
                 if (score >= 80) {
                   scoreColor = Colors.green;
-                  backgroundColor = Colors.green.shade50;
+                  backgroundColor = isDark 
+                      ? Colors.green.shade900.withOpacity(0.3)
+                      : Colors.green.shade50;
                   scoreIcon = Icons.check_circle;
                 } else if (score >= 60) {
                   scoreColor = Colors.orange;
-                  backgroundColor = Colors.orange.shade50;
+                  backgroundColor = isDark 
+                      ? Colors.orange.shade900.withOpacity(0.3)
+                      : Colors.orange.shade50;
                   scoreIcon = Icons.warning;
                 } else {
                   scoreColor = Colors.red;
-                  backgroundColor = Colors.red.shade50;
+                  backgroundColor = isDark 
+                      ? Colors.red.shade900.withOpacity(0.3)
+                      : Colors.red.shade50;
                   scoreIcon = Icons.error;
                 }
                 
@@ -75,9 +82,15 @@ class AnalysisPage extends StatelessWidget {
                       ),
                       title: Text(
                         c.name,
-                        style: const TextStyle(fontWeight: FontWeight.w500),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? Colors.grey.shade100 : Colors.black87,
+                        ),
                       ),
-                      subtitle: Text('Outstanding: ₱${store.totalOutstandingForCustomer(c.id).toStringAsFixed(2)}'),
+                      subtitle: Text(
+                        'Outstanding: ₱${store.totalOutstandingForCustomer(c.id).toStringAsFixed(2)}',
+                        style: TextStyle(color: isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                      ),
                       trailing: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(

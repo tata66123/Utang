@@ -77,8 +77,21 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
         return Scaffold(
           appBar: AppBar(
             title: const Text('Customer Dashboard'),
-            backgroundColor: Colors.green,
-            foregroundColor: Colors.white,
+            leading: Consumer<DataStore>(
+              builder: (context, store, child) {
+                return IconButton(
+                  icon: Icon(
+                    store.isDarkMode ? Icons.dark_mode : Icons.light_mode,
+                    color: store.isDarkMode ? Colors.orange : Colors.amber,
+                  ),
+                  onPressed: () async {
+                    HapticFeedback.lightImpact();
+                    await store.toggleTheme();
+                  },
+                  tooltip: store.isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+                );
+              },
+            ),
             elevation: 0,
             actions: [
               IconButton(
@@ -103,18 +116,21 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
             index: _currentIndex,
             children: _pages,
           ),
-          bottomNavigationBar: BottomNavigationBar(
-            currentIndex: _currentIndex,
-            onTap: (index) {
-              HapticFeedback.selectionClick();
-              setState(() {
-                _currentIndex = index;
-              });
-            },
-            type: BottomNavigationBarType.fixed,
-            backgroundColor: Colors.green,
-            selectedItemColor: Colors.white,
-            unselectedItemColor: Colors.white70,
+          bottomNavigationBar: Consumer<DataStore>(
+            builder: (context, store, child) {
+              final isDark = store.isDarkMode;
+              return BottomNavigationBar(
+                currentIndex: _currentIndex,
+                onTap: (index) {
+                  HapticFeedback.selectionClick();
+                  setState(() {
+                    _currentIndex = index;
+                  });
+                },
+                type: BottomNavigationBarType.fixed,
+                backgroundColor: isDark ? Colors.grey.shade800 : Colors.blue,
+                selectedItemColor: Colors.white,
+                unselectedItemColor: Colors.white70,
             items: const [
               BottomNavigationBarItem(
                 icon: Icon(Icons.home),
@@ -133,6 +149,8 @@ class _CustomerDashboardState extends State<CustomerDashboard> {
                 label: 'Notifications',
               ),
             ],
+              );
+            },
           ),
         );
       },

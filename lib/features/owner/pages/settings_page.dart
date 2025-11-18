@@ -14,6 +14,7 @@ class _SettingsPageState extends State<SettingsPage> {
   DataStore get _store => DataStore.instance;
   final TextEditingController _creditLimitController = TextEditingController();
   bool _isLoading = false;
+  double? _lastCreditLimit; // Track the last known credit limit value
 
   void _logout() {
     showDialog(
@@ -44,12 +45,28 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _clearAllData() {
+    final user = _store.state.currentUser;
+    if (user == null || user.role != UserRole.storeOwner) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Only store owners can clear transaction data')),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (BuildContext ctx) => AlertDialog(
-        title: const Text('Clear All Data'),
-        content: const Text(
-          'This will permanently delete all customers, credits, and payments. This action cannot be undone.',
+        title: const Text('Clear Store Transaction Data'),
+        content: Text(
+          'This will permanently delete all credits, payments, and transaction history for "${user.storeName}".\n\n'
+          'This will:\n'
+          '• Delete all credits and payments for this store\n'
+          '• Clear customer search history (customers with no remaining credits)\n'
+          '• Reset monthly analytics and totals\n\n'
+          'This will NOT:\n'
+          '• Delete registered users\n'
+          '• Delete other stores\' data\n\n'
+          'This action cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -59,23 +76,34 @@ class _SettingsPageState extends State<SettingsPage> {
           ElevatedButton(
             onPressed: () async {
               Navigator.of(ctx).pop();
+              setState(() => _isLoading = true);
               try {
-                await _store.clearAllData();
+                await _store.clearStoreTransactionData();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('All data cleared successfully')),
+                    const SnackBar(
+                      content: Text('Store transaction data cleared successfully'),
+                      backgroundColor: Colors.green,
+                    ),
                   );
                 }
               } catch (e) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error clearing data: $e')),
+                    SnackBar(
+                      content: Text('Error clearing data: $e'),
+                      backgroundColor: Colors.red,
+                    ),
                   );
+                }
+              } finally {
+                if (mounted) {
+                  setState(() => _isLoading = false);
                 }
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Clear All', style: TextStyle(color: Colors.white)),
+            child: const Text('Clear Data', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -100,17 +128,32 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     _updateCreditLimitController();
     // Listen to state changes to keep credit limit field in sync
+    // But only update if the credit limit value actually changed
     _store.addListener(_updateCreditLimitController);
+    _lastCreditLimit = _store.state.currentUser?.creditLimit;
   }
 
   void _updateCreditLimitController() {
     final user = _store.state.currentUser;
-    if (user != null && user.creditLimit != null) {
-      final currentText = _creditLimitController.text;
-      final newText = user.creditLimit!.toStringAsFixed(2);
-      // Only update if different to avoid cursor jumping
-      if (currentText != newText) {
-        _creditLimitController.text = newText;
+    final currentCreditLimit = user?.creditLimit;
+    
+    // Only update the controller if the credit limit value actually changed
+    // This prevents refreshing the field when credits are added (which triggers notifyListeners)
+    if (currentCreditLimit != _lastCreditLimit) {
+      _lastCreditLimit = currentCreditLimit;
+      
+      if (currentCreditLimit != null) {
+        final currentText = _creditLimitController.text;
+        final newText = currentCreditLimit.toStringAsFixed(2);
+        // Only update if different to avoid cursor jumping
+        if (currentText != newText) {
+          _creditLimitController.text = newText;
+        }
+      } else {
+        // Credit limit was cleared
+        if (_creditLimitController.text.isNotEmpty) {
+          _creditLimitController.clear();
+        }
       }
     }
   }
