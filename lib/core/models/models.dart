@@ -82,6 +82,7 @@ class CreditEntry {
     this.storeId,
     this.quantity = 1,
     this.unitPrice,
+    this.unit,
   });
   final String id;
   final String customerId;
@@ -92,6 +93,7 @@ class CreditEntry {
   final String? storeId; // store owner user id who created/owns the credit
   final int quantity; // Quantity of items
   final double? unitPrice; // Price per unit (optional, calculated as amount/quantity if not provided)
+  final String? unit; // Unit of measurement (e.g., "pcs", "kg", "liters", "boxes")
   final List<Payment> payments = <Payment>[];
 
   // Get unit price (either stored or calculated)
@@ -99,6 +101,17 @@ class CreditEntry {
   
   double get paidAmount => payments.fold(0.0, (double s, Payment p) => s + p.amount);
   double get balance => amount - paidAmount;
+  
+  // Safely add payments with deduplication to prevent negative balances
+  void addPaymentsSafely(List<Payment> newPayments) {
+    final existingPaymentIds = payments.map((p) => p.id).toSet();
+    for (final payment in newPayments) {
+      if (!existingPaymentIds.contains(payment.id)) {
+        payments.add(payment);
+        existingPaymentIds.add(payment.id);
+      }
+    }
+  }
   bool get isOverdue => (dueDate != null) && balance > 0 && DateTime.now().isAfter(dueDate!);
   bool get dueSoon => (dueDate != null) && balance > 0 && dueDate!.difference(DateTime.now()).inDays <= 3 && !isOverdue;
 
@@ -110,6 +123,7 @@ class CreditEntry {
     'amount': amount,
     'quantity': quantity,
     'unitPrice': unitPrice,
+    'unit': unit,
     'date': date.toIso8601String(),
     'dueDate': dueDate?.toIso8601String(),
     'payments': payments.map((Payment p) => p.toJson()).toList(),
@@ -124,6 +138,7 @@ class CreditEntry {
       amount: (j['amount'] as num).toDouble(),
       quantity: j['quantity'] != null ? (j['quantity'] as num).toInt() : 1, // Default to 1 for backward compatibility
       unitPrice: j['unitPrice'] != null ? (j['unitPrice'] as num).toDouble() : null,
+      unit: j['unit'] as String?,
       date: DateTime.parse(j['date'] as String),
       dueDate: j['dueDate'] != null ? DateTime.parse(j['dueDate'] as String) : null,
     );

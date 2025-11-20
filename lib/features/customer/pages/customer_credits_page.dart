@@ -230,7 +230,7 @@ class CustomerCreditsPage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Amount (Qty: ${credit.quantity} × ₱${credit.effectiveUnitPrice.toStringAsFixed(2)})',
+                      'Amount (Qty: ${credit.quantity} ${credit.unit ?? 'pcs'} × ₱${credit.effectiveUnitPrice.toStringAsFixed(2)})',
                       style: TextStyle(
                         fontSize: 12,
                         color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,

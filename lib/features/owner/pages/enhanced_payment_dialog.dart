@@ -197,7 +197,10 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
         );
       }
 
-      await widget.store.refreshData();
+      // Use selective refresh for better performance - only refresh affected credits
+      for (final creditId in _selectedPartialCreditIds) {
+        await widget.store.refreshCredit(creditId);
+      }
 
       if (!mounted) return;
       
@@ -269,7 +272,10 @@ class _EnhancedPaymentDialogState extends State<EnhancedPaymentDialog> {
         );
       }
 
-      await widget.store.refreshData();
+      // Use selective refresh for better performance - only refresh affected credits
+      for (final creditId in _selectedFullCreditIds) {
+        await widget.store.refreshCredit(creditId);
+      }
 
       if (!mounted) return;
       

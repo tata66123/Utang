@@ -193,7 +193,7 @@ class RemindersPage extends StatelessWidget {
                         child: ListTile(
                           leading: Icon(overdue ? Icons.warning : Icons.event, color: color),
                           title: Text(e.item, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('Qty: ${e.quantity} × ₱${e.effectiveUnitPrice.toStringAsFixed(2)} = ₱${e.amount.toStringAsFixed(2)}  •  Balance: ₱${e.balance.toStringAsFixed(2)}  •  Due: ${_formatDate(e.dueDate!)}'),
+                          subtitle: Text('Qty: ${e.quantity} ${e.unit ?? 'pcs'} × ₱${e.effectiveUnitPrice.toStringAsFixed(2)} = ₱${e.amount.toStringAsFixed(2)}  •  Balance: ₱${e.balance.toStringAsFixed(2)}  •  Due: ${_formatDate(e.dueDate!)}'),
                           trailing: IconButton(
                             icon: const Icon(Icons.notifications_active),
                             tooltip: 'Send Reminder',

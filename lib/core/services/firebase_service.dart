@@ -194,6 +194,36 @@ class FirebaseService {
     return [];
   }
 
+  // Batch fetch customers by IDs (more efficient than individual calls)
+  Future<List<Customer>> getCustomersByIds(List<String> customerIds) async {
+    await initialize();
+    if (customerIds.isEmpty) return [];
+    
+    try {
+      // Fetch all customers once, then filter
+      final snapshot = await _database.child('customers').get();
+      if (snapshot.exists && snapshot.value != null) {
+        final customers = Map<String, dynamic>.from(snapshot.value as Map);
+        final customerIdSet = customerIds.toSet();
+        return customers.entries
+            .where((entry) => customerIdSet.contains(entry.key))
+            .map((entry) {
+              final data = Map<String, dynamic>.from(entry.value as Map);
+              return Customer(
+                id: entry.key,
+                name: data['name'] ?? '',
+                storeId: data['storeId'],
+                creditLimit: data['creditLimit'] != null ? (data['creditLimit'] as num).toDouble() : null,
+              );
+            })
+            .toList();
+      }
+    } catch (e) {
+      print('Error batch getting customers by IDs: $e');
+    }
+    return [];
+  }
+
   Future<void> updateCustomer(Customer customer) async {
     await initialize();
     await _database.child('customers').child(customer.id).update({
@@ -243,6 +273,7 @@ class FirebaseService {
       'amount': credit.amount,
       'quantity': credit.quantity,
       'unitPrice': credit.unitPrice,
+      'unit': credit.unit,
       'date': _toTimestamp(credit.date),
       'dueDate': _toTimestamp(credit.dueDate),
       'createdAt': now,
@@ -262,24 +293,50 @@ class FirebaseService {
     }
   }
 
-  // Helper method to get payments for a credit (avoids index requirement)
+  // Helper method to get payments for a credit (optimized to query by creditId)
   Future<List<Payment>> _getPaymentsForCredit(String creditId) async {
-    final allPaymentsSnapshot = await _database.child('payments').get();
-    final List<Payment> payments = [];
-    if (allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
-      final allPayments = Map<String, dynamic>.from(allPaymentsSnapshot.value as Map);
-      for (final entry in allPayments.entries) {
-        final paymentData = Map<String, dynamic>.from(entry.value as Map);
-        if (paymentData['creditId'] == creditId) {
-          payments.add(Payment(
+    await initialize();
+    try {
+      // Query payments by creditId instead of fetching all payments
+      // This is much faster when there are many payments in the database
+      final snapshot = await _database
+          .child('payments')
+          .orderByChild('creditId')
+          .equalTo(creditId)
+          .get();
+      
+      if (snapshot.exists && snapshot.value != null) {
+        final paymentsData = snapshot.value as Map;
+        return paymentsData.entries.map((entry) {
+          final data = Map<String, dynamic>.from(entry.value as Map);
+          return Payment(
             id: entry.key,
-            amount: (paymentData['amount'] as num).toDouble(),
-            date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
-          ));
+            amount: (data['amount'] as num).toDouble(),
+            date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
+          );
+        }).toList();
+      }
+    } catch (e) {
+      // Fallback to old method if query fails (e.g., index not set up)
+      print('Warning: Payment query failed, falling back to full fetch: $e');
+      final allPaymentsSnapshot = await _database.child('payments').get();
+      final List<Payment> payments = [];
+      if (allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
+        final allPayments = Map<String, dynamic>.from(allPaymentsSnapshot.value as Map);
+        for (final entry in allPayments.entries) {
+          final paymentData = Map<String, dynamic>.from(entry.value as Map);
+          if (paymentData['creditId'] == creditId) {
+            payments.add(Payment(
+              id: entry.key,
+              amount: (paymentData['amount'] as num).toDouble(),
+              date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
+            ));
+          }
         }
       }
+      return payments;
     }
-    return payments;
+    return [];
   }
 
   Future<CreditEntry?> getCredit(String creditId) async {
@@ -300,11 +357,13 @@ class FirebaseService {
           amount: (data['amount'] as num).toDouble(),
           quantity: data['quantity'] != null ? (data['quantity'] as num).toInt() : 1,
           unitPrice: data['unitPrice'] != null ? (data['unitPrice'] as num).toDouble() : null,
+          unit: data['unit'] as String?,
           date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
           dueDate: _fromTimestamp(data['dueDate'] as int?),
         );
         
-        credit.payments.addAll(payments);
+        // Use safe method to prevent duplicate payments
+        credit.addPaymentsSafely(payments);
         return credit;
       }
     } catch (e) {
@@ -355,11 +414,13 @@ class FirebaseService {
             amount: (data['amount'] as num).toDouble(),
             quantity: data['quantity'] != null ? (data['quantity'] as num).toInt() : 1,
             unitPrice: data['unitPrice'] != null ? (data['unitPrice'] as num).toDouble() : null,
+            unit: data['unit'] as String?,
             date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
             dueDate: _fromTimestamp(data['dueDate'] as int?),
           );
           
-          credit.payments.addAll(payments);
+          // Use safe method to prevent duplicate payments
+          credit.addPaymentsSafely(payments);
           creditList.add(credit);
         }
 
@@ -381,6 +442,7 @@ class FirebaseService {
       'amount': credit.amount,
       'quantity': credit.quantity,
       'unitPrice': credit.unitPrice,
+      'unit': credit.unit,
       'date': _toTimestamp(credit.date),
       'dueDate': _toTimestamp(credit.dueDate),
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
@@ -666,7 +728,8 @@ class FirebaseService {
               dueDate: _fromTimestamp(data['dueDate'] as int?),
             );
             
-            credit.payments.addAll(payments);
+            // Use safe method to prevent duplicate payments
+            credit.addPaymentsSafely(payments);
             creditList.add(credit);
           }
         }
@@ -723,8 +786,8 @@ class FirebaseService {
               dueDate: _fromTimestamp(data['dueDate'] as int?),
             );
             
-            // Add payments for this credit
-            credit.payments.addAll(paymentsByCreditId[entry.key] ?? []);
+            // Use safe method to prevent duplicate payments
+            credit.addPaymentsSafely(paymentsByCreditId[entry.key] ?? []);
             creditList.add(credit);
           }
         }

@@ -19,7 +19,7 @@ class DatabaseHelper {
     String path = join(await getDatabasesPath(), 'utang_app.db');
     return await openDatabase(
       path,
-      version: 8, // Increment: add creditLimit to users table
+      version: 9, // Increment: add unit to credits table
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -64,6 +64,7 @@ class DatabaseHelper {
         amount REAL NOT NULL,
         quantity INTEGER DEFAULT 1,
         unitPrice REAL,
+        unit TEXT,
         date TEXT NOT NULL,
         dueDate TEXT,
         createdAt TEXT NOT NULL,
@@ -145,6 +146,10 @@ class DatabaseHelper {
     if (oldVersion < 8) {
       // Add creditLimit to users table (for store owners)
       await db.execute('ALTER TABLE users ADD COLUMN creditLimit REAL');
+    }
+    if (oldVersion < 9) {
+      // Add unit to credits table
+      await db.execute('ALTER TABLE credits ADD COLUMN unit TEXT');
     }
   }
 
@@ -338,6 +343,7 @@ class DatabaseHelper {
       'amount': credit.amount,
       'quantity': credit.quantity,
       'unitPrice': credit.unitPrice,
+      'unit': credit.unit,
       'date': credit.date.toIso8601String(),
       'dueDate': credit.dueDate?.toIso8601String(),
       'createdAt': DateTime.now().toIso8601String(),
@@ -369,6 +375,7 @@ class DatabaseHelper {
       'amount': credit.amount,
       'quantity': credit.quantity,
       'unitPrice': credit.unitPrice,
+      'unit': credit.unit,
       'date': credit.date.toIso8601String(),
       'dueDate': credit.dueDate?.toIso8601String(),
       'createdAt': DateTime.now().toIso8601String(),
@@ -412,6 +419,7 @@ class DatabaseHelper {
         amount: creditMap['amount'],
         quantity: creditMap['quantity'] != null ? (creditMap['quantity'] as num).toInt() : 1,
         unitPrice: creditMap['unitPrice'] != null ? (creditMap['unitPrice'] as num).toDouble() : null,
+        unit: creditMap['unit'] as String?,
         date: DateTime.parse(creditMap['date']),
         dueDate: creditMap['dueDate'] != null ? DateTime.parse(creditMap['dueDate']) : null,
       );
@@ -446,6 +454,7 @@ class DatabaseHelper {
         amount: creditMap['amount'],
         quantity: creditMap['quantity'] != null ? (creditMap['quantity'] as num).toInt() : 1,
         unitPrice: creditMap['unitPrice'] != null ? (creditMap['unitPrice'] as num).toDouble() : null,
+        unit: creditMap['unit'] as String?,
         date: DateTime.parse(creditMap['date']),
         dueDate: creditMap['dueDate'] != null ? DateTime.parse(creditMap['dueDate']) : null,
       );
@@ -478,6 +487,7 @@ class DatabaseHelper {
         amount: creditMap['amount'],
         quantity: creditMap['quantity'] != null ? (creditMap['quantity'] as num).toInt() : 1,
         unitPrice: creditMap['unitPrice'] != null ? (creditMap['unitPrice'] as num).toDouble() : null,
+        unit: creditMap['unit'] as String?,
         date: DateTime.parse(creditMap['date']),
         dueDate: creditMap['dueDate'] != null ? DateTime.parse(creditMap['dueDate']) : null,
       );
@@ -498,6 +508,7 @@ class DatabaseHelper {
         'amount': credit.amount,
         'quantity': credit.quantity,
         'unitPrice': credit.unitPrice,
+        'unit': credit.unit,
         'date': credit.date.toIso8601String(),
         'dueDate': credit.dueDate?.toIso8601String(),
         'updatedAt': DateTime.now().toIso8601String(),
@@ -587,14 +598,6 @@ class DatabaseHelper {
     final Set<String> validCreditIds = validCreditMaps.map((m) => m['id'] as String).toSet();
     
     // Get all credit customer IDs for this store
-    final creditMaps = await db.query(
-      'credits',
-      columns: ['customerId'],
-      where: 'storeId = ?',
-      whereArgs: [currentStoreId],
-    );
-    final Set<String> validCustomerIds = creditMaps.map((m) => m['customerId'] as String).toSet();
-    
     // Delete customers that:
     // 1. Have a storeId that's not the current store
     // NOTE: We keep customers with null storeId even if they don't have credits yet,

@@ -25,12 +25,29 @@ class _AddCreditPageState extends State<AddCreditPage> {
   
   // List to store multiple items
   final List<Map<String, dynamic>> _items = [
-    {'item': '', 'quantity': '', 'unitPrice': ''}
+    {'item': '', 'quantity': '', 'unitPrice': '', 'unit': 'pcs'}
   ];
   
   final List<TextEditingController> _itemControllers = [TextEditingController()];
   final List<TextEditingController> _quantityControllers = [TextEditingController()];
   final List<TextEditingController> _unitPriceControllers = [TextEditingController()];
+  final List<String> _selectedUnits = ['pcs']; // Default unit for each item
+  
+  // Common units for dropdown
+  static const List<String> _commonUnits = [
+    'pcs',
+    'kg',
+    'g',
+    'liters',
+    'ml',
+    'boxes',
+    'bags',
+    'bottles',
+    'packs',
+    'meters',
+    'yards',
+    'dozen',
+  ];
 
   DataStore get _store => DataStore.instance;
 
@@ -90,7 +107,7 @@ class _AddCreditPageState extends State<AddCreditPage> {
       // Reinitialize lists to a single empty row without disposing during this frame
       _items
         ..clear()
-        ..add({'item': '', 'quantity': '', 'unitPrice': ''});
+        ..add({'item': '', 'quantity': '', 'unitPrice': '', 'unit': 'pcs'});
 
       // Keep references new to avoid accessing disposed controllers in the same frame
       _itemControllers
@@ -102,6 +119,9 @@ class _AddCreditPageState extends State<AddCreditPage> {
       _unitPriceControllers
         ..clear()
         ..add(TextEditingController());
+      _selectedUnits
+        ..clear()
+        ..add('pcs');
 
       _selectedDate = DateTime.now();
       _dueDate = null;
@@ -111,10 +131,11 @@ class _AddCreditPageState extends State<AddCreditPage> {
 
   void _addItem() {
     setState(() {
-      _items.add({'item': '', 'quantity': '', 'unitPrice': ''});
+      _items.add({'item': '', 'quantity': '', 'unitPrice': '', 'unit': 'pcs'});
       _itemControllers.add(TextEditingController());
       _quantityControllers.add(TextEditingController());
       _unitPriceControllers.add(TextEditingController());
+      _selectedUnits.add('pcs');
     });
   }
 
@@ -128,6 +149,7 @@ class _AddCreditPageState extends State<AddCreditPage> {
         _itemControllers.removeAt(index);
         _quantityControllers.removeAt(index);
         _unitPriceControllers.removeAt(index);
+        _selectedUnits.removeAt(index);
       });
       // Defer disposal to next frame to avoid use-after-dispose during rebuild
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -263,6 +285,7 @@ class _AddCreditPageState extends State<AddCreditPage> {
           final itemText = _itemControllers[i].text.trim();
           final quantityText = _quantityControllers[i].text.trim();
           final unitPriceText = _unitPriceControllers[i].text.trim();
+          final unit = _selectedUnits[i].trim();
           
           if (itemText.isNotEmpty && quantityText.isNotEmpty && unitPriceText.isNotEmpty) {
             final int quantity = int.parse(quantityText);
@@ -341,6 +364,7 @@ class _AddCreditPageState extends State<AddCreditPage> {
                 dueDate: _dueDate,
                 quantity: quantity,
                 unitPrice: unitPrice,
+                unit: unit.isNotEmpty ? unit : null,
               );
             } catch (e) {
               // Handle customer not found error
@@ -855,177 +879,380 @@ class _AddCreditPageState extends State<AddCreditPage> {
 
                       // Dynamic Items List
                       ...List.generate(_items.length, (index) {
-                        return Column(
-                          children: [
-                            // Item name
-                            TextFormField(
-                              controller: _itemControllers[index],
-                              decoration: InputDecoration(
-                                labelText: 'Item ${index + 1}',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.description),
-                              ),
-                              maxLines: 1,
-                              textInputAction: TextInputAction.next,
-                              validator: (value) {
-                                if (value == null || value.trim().isEmpty) {
-                                  return 'Please enter item description';
-                                }
-                                // Item name cannot start with a number
-                                final trimmedValue = value.trim();
-                                if (trimmedValue.isNotEmpty && RegExp(r'^[0-9]').hasMatch(trimmedValue)) {
-                                  return 'Item name cannot start with a number';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 12),
-                            // Quantity and Unit Price row
-                            Row(
+                        return Card(
+                          margin: EdgeInsets.only(bottom: index < _items.length - 1 ? 16 : 0),
+                          elevation: 1,
+                          child: Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: TextFormField(
-                                    controller: _quantityControllers[index],
-                                    keyboardType: TextInputType.number,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Quantity',
-                                      border: OutlineInputBorder(),
-                                      prefixIcon: Icon(Icons.numbers),
+                                // Item Header Row
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        'Item ${index + 1}',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Theme.of(context).brightness == Brightness.dark
+                                              ? Colors.white
+                                              : Colors.black87,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                    textInputAction: TextInputAction.next,
-                                    validator: (value) {
-                                      if (value == null || value.trim().isEmpty) {
-                                        return 'Enter quantity';
-                                      }
-                                      final int? qty = int.tryParse(value);
-                                      if (qty == null || qty <= 0) {
-                                        return 'Quantity must be > 0';
-                                      }
-                                      return null;
-                                    },
-                                    onChanged: (_) => setState(() {}), // Rebuild to update total
-                                  ),
+                                    if (_items.length > 1)
+                                      IconButton(
+                                        onPressed: () => _removeItem(index),
+                                        icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                        tooltip: 'Remove Item',
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(),
+                                      ),
+                                  ],
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: TextFormField(
-                                    controller: _unitPriceControllers[index],
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Unit Price',
-                                      border: OutlineInputBorder(),
-                                      prefixText: '₱ ',
-                                      prefixIcon: Icon(Icons.attach_money),
+                                const SizedBox(height: 12),
+                                // Item name
+                                TextFormField(
+                                  controller: _itemControllers[index],
+                                  decoration: InputDecoration(
+                                    labelText: 'Item Description',
+                                    border: const OutlineInputBorder(),
+                                    prefixIcon: const Icon(Icons.description),
+                                    isDense: true,
+                                  ),
+                                  maxLines: 1,
+                                  textInputAction: TextInputAction.next,
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Please enter item description';
+                                    }
+                                    // Item name cannot start with a number
+                                    final trimmedValue = value.trim();
+                                    if (trimmedValue.isNotEmpty && RegExp(r'^[0-9]').hasMatch(trimmedValue)) {
+                                      return 'Item name cannot start with a number';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+                                // Quantity and Unit row (top row with more space)
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: _quantityControllers[index],
+                                        keyboardType: TextInputType.number,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Quantity',
+                                          border: OutlineInputBorder(),
+                                          prefixIcon: Icon(Icons.numbers, size: 20),
+                                          isDense: true,
+                                        ),
+                                        textInputAction: TextInputAction.next,
+                                        validator: (value) {
+                                          if (value == null || value.trim().isEmpty) {
+                                            return 'Enter qty';
+                                          }
+                                          final int? qty = int.tryParse(value);
+                                          if (qty == null || qty <= 0) {
+                                            return 'Qty > 0';
+                                          }
+                                          return null;
+                                        },
+                                        onChanged: (_) => setState(() {}), // Rebuild to update total
+                                      ),
                                     ),
-                                    textInputAction: TextInputAction.done,
-                                    validator: (value) {
-                                      if (value == null || value.trim().isEmpty) {
-                                        return 'Enter unit price';
-                                      }
-                                      final double? price = double.tryParse(value);
-                                      if (price == null) {
-                                        return 'Invalid price';
-                                      }
-                                      if (price <= 0) {
-                                        return 'Price must be > 0';
-                                      }
-                                      return null;
-                                    },
-                                    onChanged: (_) => setState(() {}), // Rebuild to update total
-                                  ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: DropdownButtonFormField<String>(
+                                        value: _selectedUnits[index],
+                                        isExpanded: true,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Unit',
+                                          border: OutlineInputBorder(),
+                                          isDense: true,
+                                        ),
+                                        items: [
+                                          ..._commonUnits.map((unit) => DropdownMenuItem(
+                                            value: unit,
+                                            child: Text(
+                                              unit.toUpperCase(),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          )),
+                                          const DropdownMenuItem(
+                                            value: 'custom',
+                                            child: Text(
+                                              'Custom...',
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                        onChanged: (value) {
+                                          if (value == 'custom') {
+                                            // Show dialog for custom unit
+                                            showDialog(
+                                              context: context,
+                                              builder: (context) {
+                                                final customController = TextEditingController();
+                                                return AlertDialog(
+                                                  title: const Text('Custom Unit'),
+                                                  content: TextField(
+                                                    controller: customController,
+                                                    decoration: const InputDecoration(
+                                                      labelText: 'Enter unit name',
+                                                      hintText: 'e.g., pieces, kilograms',
+                                                    ),
+                                                    autofocus: true,
+                                                  ),
+                                                  actions: [
+                                                    TextButton(
+                                                      onPressed: () => Navigator.pop(context),
+                                                      child: const Text('Cancel'),
+                                                    ),
+                                                    ElevatedButton(
+                                                      onPressed: () {
+                                                        if (customController.text.trim().isNotEmpty) {
+                                                          setState(() {
+                                                            _selectedUnits[index] = customController.text.trim();
+                                                          });
+                                                          Navigator.pop(context);
+                                                        }
+                                                      },
+                                                      child: const Text('OK'),
+                                                    ),
+                                                  ],
+                                                );
+                                              },
+                                            );
+                                          } else if (value != null) {
+                                            setState(() {
+                                              _selectedUnits[index] = value;
+                                            });
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                if (_items.length > 1)
-                                  IconButton(
-                                    onPressed: () => _removeItem(index),
-                                    icon: const Icon(Icons.remove_circle, color: Colors.red),
-                                    tooltip: 'Remove Item',
+                                const SizedBox(height: 12),
+                                // Unit Price row (bottom row, full width)
+                                TextFormField(
+                                  controller: _unitPriceControllers[index],
+                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  decoration: const InputDecoration(
+                                    labelText: 'Unit Price',
+                                    border: OutlineInputBorder(),
+                                    prefixText: '₱ ',
+                                    isDense: true,
                                   ),
+                                  textInputAction: TextInputAction.done,
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Enter price';
+                                    }
+                                    final double? price = double.tryParse(value);
+                                    if (price == null) {
+                                      return 'Invalid price';
+                                    }
+                                    if (price <= 0) {
+                                      return 'Price > 0';
+                                    }
+                                    return null;
+                                  },
+                                  onChanged: (_) => setState(() {}), // Rebuild to update total
+                                ),
+                                const SizedBox(height: 12),
+                                // Total Amount Display
+                                Builder(
+                                  builder: (context) {
+                                    final isDark = Theme.of(context).brightness == Brightness.dark;
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: isDark 
+                                            ? Colors.blue.shade900.withOpacity(0.3)
+                                            : Colors.blue.shade50,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: isDark 
+                                              ? Colors.blue.shade700
+                                              : Colors.blue.shade200
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              'Total:',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                                color: isDark ? Colors.grey.shade100 : Colors.black87,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          Flexible(
+                                            child: Text(
+                                              '₱${_calculateTotal(index).toStringAsFixed(2)}',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16,
+                                                color: isDark ? Colors.blue.shade200 : Colors.blue.shade700,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            // Total Amount Display
-                            Builder(
-                              builder: (context) {
-                                final isDark = Theme.of(context).brightness == Brightness.dark;
-                                return Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: isDark 
-                                        ? Colors.blue.shade900.withOpacity(0.3)
-                                        : Colors.blue.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: isDark 
-                                          ? Colors.blue.shade700
-                                          : Colors.blue.shade200
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        'Total Amount:',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 14,
-                                          color: isDark ? Colors.grey.shade100 : Colors.black87,
-                                        ),
-                                      ),
-                                      Text(
-                                        '₱${_calculateTotal(index).toStringAsFixed(2)}',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                          color: isDark ? Colors.blue.shade200 : Colors.blue.shade700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                            if (index < _items.length - 1) const SizedBox(height: 16),
-                          ],
+                          ),
                         );
                       }),
 
                       const SizedBox(height: 16),
 
-                      // Credit Date
+                      // Date Selection - Two Column Layout
                       Row(
                         children: [
+                          // Credit Date Column
                           Expanded(
-                            child: Text(
-                              'Credit Date: ${_formatDate(_selectedDate)}',
-                              overflow: TextOverflow.ellipsis,
+                            child: Card(
+                              color: Theme.of(context).brightness == Brightness.dark
+                                  ? Colors.blue.shade900.withOpacity(0.3)
+                                  : Colors.blue.shade50,
+                              child: InkWell(
+                                onTap: _pickDate,
+                                borderRadius: BorderRadius.circular(8),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.calendar_today,
+                                            size: 18,
+                                            color: Theme.of(context).brightness == Brightness.dark
+                                                ? Colors.blue.shade300
+                                                : Colors.blue.shade700,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Flexible(
+                                            child: Text(
+                                              'Credit Date',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Theme.of(context).brightness == Brightness.dark
+                                                    ? Colors.grey.shade400
+                                                    : Colors.grey.shade600,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        _formatDate(_selectedDate),
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Theme.of(context).brightness == Brightness.dark
+                                              ? Colors.white
+                                              : Colors.black87,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                          TextButton(
-                            onPressed: _pickDate,
-                            child: const Text('Change Date'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Due Date
-                      Row(
-                        children: [
+                          const SizedBox(width: 12),
+                          // Due Date Column
                           Expanded(
-                            child: Text(
-                              'Due Date: ${_dueDate == null ? 'None' : _formatDate(_dueDate!)}',
-                              overflow: TextOverflow.ellipsis,
+                            child: Card(
+                              color: Theme.of(context).brightness == Brightness.dark
+                                  ? (_dueDate != null ? Colors.orange.shade900.withOpacity(0.3) : Colors.grey.shade800.withOpacity(0.3))
+                                  : (_dueDate != null ? Colors.orange.shade50 : Colors.grey.shade100),
+                              child: InkWell(
+                                onTap: _pickDueDate,
+                                borderRadius: BorderRadius.circular(8),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Flexible(
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.event,
+                                                  size: 18,
+                                                  color: Theme.of(context).brightness == Brightness.dark
+                                                      ? (_dueDate != null ? Colors.orange.shade300 : Colors.grey.shade400)
+                                                      : (_dueDate != null ? Colors.orange.shade700 : Colors.grey.shade600),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Flexible(
+                                                  child: Text(
+                                                    'Due Date',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Theme.of(context).brightness == Brightness.dark
+                                                          ? Colors.grey.shade400
+                                                          : Colors.grey.shade600,
+                                                    ),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (_dueDate != null)
+                                            IconButton(
+                                              icon: const Icon(Icons.clear, size: 18),
+                                              onPressed: () => setState(() => _dueDate = null),
+                                              padding: EdgeInsets.zero,
+                                              constraints: const BoxConstraints(),
+                                              tooltip: 'Clear due date',
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        _dueDate == null ? 'Not set' : _formatDate(_dueDate!),
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: Theme.of(context).brightness == Brightness.dark
+                                              ? (_dueDate != null ? Colors.white : Colors.grey.shade400)
+                                              : (_dueDate != null ? Colors.black87 : Colors.grey.shade600),
+                                          fontStyle: _dueDate == null ? FontStyle.italic : FontStyle.normal,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                          TextButton(
-                            onPressed: _pickDueDate,
-                            child: const Text('Set Due Date'),
-                          ),
-                          if (_dueDate != null)
-                            TextButton(
-                              onPressed: () => setState(() => _dueDate = null),
-                              child: const Text('Clear'),
-                            ),
                         ],
                       ),
                       const SizedBox(height: 24),
@@ -1118,7 +1345,7 @@ class _AddCreditPageState extends State<AddCreditPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Quantity: ${credit.quantity} × ₱${credit.effectiveUnitPrice.toStringAsFixed(2)} = ₱${credit.amount.toStringAsFixed(2)}',
+                  'Quantity: ${credit.quantity} ${credit.unit ?? 'pcs'} × ₱${credit.effectiveUnitPrice.toStringAsFixed(2)} = ₱${credit.amount.toStringAsFixed(2)}',
                   overflow: TextOverflow.ellipsis,
                 ),
                 Text(

@@ -11,20 +11,25 @@ class AnalysisPage extends StatelessWidget {
     int onTime = 0;
     int total = 0;
     for (final CreditEntry e in entries) {
+      // Only count credits with due dates
       if (e.dueDate == null) continue;
       double cumulative = 0;
       final DateTime due = e.dueDate!;
+      // Sort payments by date to process chronologically
       final List<Payment> pays = List<Payment>.from(e.payments)..sort((Payment a, Payment b) => a.date.compareTo(b.date));
       for (final Payment p in pays) {
         cumulative += p.amount;
+        // Check if credit is fully paid (using small epsilon for floating point comparison)
         if (cumulative + 1e-6 >= e.amount) {
           total++;
+          // Check if the payment that completed the credit was on or before due date
           if (!p.date.isAfter(due)) onTime++;
           break;
         }
       }
     }
     if (total == 0) return 0;
+    // Calculate percentage: (onTime / total) * 100, clamped between 0 and 100
     final double ratio = onTime / total;
     return (ratio * 100).clamp(0, 100);
   }
