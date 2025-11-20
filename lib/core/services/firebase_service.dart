@@ -83,9 +83,16 @@ class FirebaseService {
   Future<User?> getUserByUsername(String username) async {
     await initialize();
     try {
-      final snapshot = await _database.child('users').get();
+      // OPTIMIZED: Add timeout to prevent hanging
+      // Note: Firebase Realtime DB doesn't support querying by username directly
+      // So we still need to fetch, but with timeout
+      final snapshot = await _database.child('users').get().timeout(
+        const Duration(seconds: 15),
+      );
+      
       if (snapshot.exists && snapshot.value != null) {
         final users = Map<String, dynamic>.from(snapshot.value as Map);
+        // Early exit when found
         for (final entry in users.entries) {
           final userData = Map<String, dynamic>.from(entry.value as Map);
           if (userData['username'] == username) {
@@ -172,10 +179,16 @@ class FirebaseService {
     return null;
   }
 
+  // DEPRECATED: Use getCustomersForStore or getCustomersByIds instead
+  // This method is kept for backward compatibility but should be avoided
   Future<List<Customer>> getAllCustomers() async {
     await initialize();
     try {
-      final snapshot = await _database.child('customers').get();
+      // Add timeout to prevent hanging
+      final snapshot = await _database.child('customers').get().timeout(
+        const Duration(seconds: 15),
+      );
+      
       if (snapshot.exists && snapshot.value != null) {
         final customers = Map<String, dynamic>.from(snapshot.value as Map);
         return customers.entries.map((entry) {
@@ -653,31 +666,33 @@ class FirebaseService {
     }
   }
 
-  // Filtered fetch helpers
+  // Filtered fetch helpers - OPTIMIZED: Use indexed query instead of fetching all
   Future<List<Customer>> getCustomersForStore(String storeId) async {
     await initialize();
     try {
-      final snapshot = await _database.child('customers').get();
+      // Use indexed query instead of fetching all customers
+      final snapshot = await _database
+          .child('customers')
+          .orderByChild('storeId')
+          .equalTo(storeId)
+          .get()
+          .timeout(const Duration(seconds: 15));
+      
       if (snapshot.exists && snapshot.value != null) {
         final customers = Map<String, dynamic>.from(snapshot.value as Map);
-        return customers.entries
-            .where((entry) {
-              final data = Map<String, dynamic>.from(entry.value as Map);
-              return data['storeId'] == storeId;
-            })
-            .map((entry) {
-              final data = Map<String, dynamic>.from(entry.value as Map);
-              return Customer(
-                id: entry.key,
-                name: data['name'] ?? '',
-                storeId: data['storeId'],
-                creditLimit: data['creditLimit'] != null ? (data['creditLimit'] as num).toDouble() : null,
-              );
-            })
-            .toList();
+        return customers.entries.map((entry) {
+          final data = Map<String, dynamic>.from(entry.value as Map);
+          return Customer(
+            id: entry.key,
+            name: data['name'] ?? '',
+            storeId: data['storeId'],
+            creditLimit: data['creditLimit'] != null ? (data['creditLimit'] as num).toDouble() : null,
+          );
+        }).toList();
       }
     } catch (e) {
       print('Error getting customers for store: $e');
+      // Fallback to empty list on error
     }
     return [];
   }
@@ -685,53 +700,75 @@ class FirebaseService {
   Future<List<CreditEntry>> getCreditsForStore(String storeId) async {
     await initialize();
     try {
-      final snapshot = await _database.child('credits').get();
+      // OPTIMIZED: Use indexed query instead of fetching all credits
+      final snapshot = await _database
+          .child('credits')
+          .orderByChild('storeId')
+          .equalTo(storeId)
+          .get()
+          .timeout(const Duration(seconds: 20));
+      
       if (snapshot.exists && snapshot.value != null) {
         final credits = Map<String, dynamic>.from(snapshot.value as Map);
         List<CreditEntry> creditList = [];
-
-        // Fetch all payments once to avoid multiple queries
-        final allPaymentsSnapshot = await _database.child('payments').get();
+        
+        // Get credit IDs to fetch payments efficiently
+        final creditIds = credits.keys.toList();
+        
+        // Fetch payments for these credits in batches (limit to prevent timeout)
         final Map<String, List<Payment>> paymentsByCreditId = {};
-        if (allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
-          final allPayments = Map<String, dynamic>.from(allPaymentsSnapshot.value as Map);
-          for (final paymentEntry in allPayments.entries) {
-            final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
-            final paymentCreditId = paymentData['creditId'] as String?;
-            if (paymentCreditId != null) {
-              paymentsByCreditId.putIfAbsent(paymentCreditId, () => []).add(
-                Payment(
-                  id: paymentEntry.key,
-                  amount: (paymentData['amount'] as num).toDouble(),
-                  date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
-                )
-              );
+        const int paymentBatchSize = 50;
+        
+        for (int i = 0; i < creditIds.length; i += paymentBatchSize) {
+          final batch = creditIds.skip(i).take(paymentBatchSize).toList();
+          try {
+            // Fetch payments for this batch
+            final paymentsSnapshot = await _database.child('payments').get().timeout(
+              const Duration(seconds: 10),
+            );
+            
+            if (paymentsSnapshot.exists && paymentsSnapshot.value != null) {
+              final allPayments = Map<String, dynamic>.from(paymentsSnapshot.value as Map);
+              for (final paymentEntry in allPayments.entries) {
+                final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
+                final paymentCreditId = paymentData['creditId'] as String?;
+                if (paymentCreditId != null && batch.contains(paymentCreditId)) {
+                  paymentsByCreditId.putIfAbsent(paymentCreditId, () => []).add(
+                    Payment(
+                      id: paymentEntry.key,
+                      amount: (paymentData['amount'] as num).toDouble(),
+                      date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
+                    )
+                  );
+                }
+              }
             }
+          } catch (e) {
+            print('Error fetching payments batch: $e');
+            // Continue with other credits even if payment fetch fails
           }
         }
 
         for (final entry in credits.entries) {
           final data = Map<String, dynamic>.from(entry.value as Map);
-          if (data['storeId'] == storeId) {
-            // Get payments for this credit from the pre-fetched map
-            final payments = paymentsByCreditId[entry.key] ?? [];
+          // Get payments for this credit
+          final payments = paymentsByCreditId[entry.key] ?? [];
 
-            final credit = CreditEntry(
-              id: entry.key,
-              customerId: data['customerId'] ?? '',
-              storeId: data['storeId'],
-              item: data['item'] ?? '',
-              amount: (data['amount'] as num).toDouble(),
-              quantity: data['quantity'] != null ? (data['quantity'] as num).toInt() : 1,
-              unitPrice: data['unitPrice'] != null ? (data['unitPrice'] as num).toDouble() : null,
-              date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
-              dueDate: _fromTimestamp(data['dueDate'] as int?),
-            );
-            
-            // Use safe method to prevent duplicate payments
-            credit.addPaymentsSafely(payments);
-            creditList.add(credit);
-          }
+          final credit = CreditEntry(
+            id: entry.key,
+            customerId: data['customerId'] ?? '',
+            storeId: data['storeId'],
+            item: data['item'] ?? '',
+            amount: (data['amount'] as num).toDouble(),
+            quantity: data['quantity'] != null ? (data['quantity'] as num).toInt() : 1,
+            unitPrice: data['unitPrice'] != null ? (data['unitPrice'] as num).toDouble() : null,
+            date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
+            dueDate: _fromTimestamp(data['dueDate'] as int?),
+          );
+          
+          // Use safe method to prevent duplicate payments
+          credit.addPaymentsSafely(payments);
+          creditList.add(credit);
         }
 
         return creditList;
@@ -745,51 +782,62 @@ class FirebaseService {
   Future<List<CreditEntry>> getCreditsForCustomer(String customerId) async {
     await initialize();
     try {
-      final snapshot = await _database.child('credits').get();
+      // OPTIMIZED: Use indexed query instead of fetching all credits
+      final snapshot = await _database
+          .child('credits')
+          .orderByChild('customerId')
+          .equalTo(customerId)
+          .get()
+          .timeout(const Duration(seconds: 20));
+      
       if (snapshot.exists && snapshot.value != null) {
         final credits = Map<String, dynamic>.from(snapshot.value as Map);
         List<CreditEntry> creditList = [];
 
-        // Fetch all payments once (avoiding orderByChild query that requires index)
-        final allPaymentsSnapshot = await _database.child('payments').get();
+        // Get credit IDs to fetch payments efficiently
+        final creditIds = credits.keys.toList();
+        
+        // Fetch payments for these credits using indexed query
         final Map<String, List<Payment>> paymentsByCreditId = {};
         
-        if (allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
-          final allPayments = Map<String, dynamic>.from(allPaymentsSnapshot.value as Map);
-          for (final paymentEntry in allPayments.entries) {
-            final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
-            final paymentCreditId = paymentData['creditId'] as String?;
-            if (paymentCreditId != null) {
-              paymentsByCreditId.putIfAbsent(paymentCreditId, () => []).add(
-                Payment(
-                  id: paymentEntry.key,
-                  amount: (paymentData['amount'] as num).toDouble(),
-                  date: _fromTimestamp(paymentData['date'] as int?) ?? DateTime.now(),
-                )
+        // Fetch payments in batches to avoid timeout
+        const int paymentBatchSize = 50;
+        for (int i = 0; i < creditIds.length; i += paymentBatchSize) {
+          final batch = creditIds.skip(i).take(paymentBatchSize).toList();
+          try {
+            // For each credit in batch, fetch its payments
+            for (final creditId in batch) {
+              final payments = await _getPaymentsForCredit(creditId).timeout(
+                const Duration(seconds: 5),
               );
+              paymentsByCreditId[creditId] = payments;
             }
+          } catch (e) {
+            print('Error fetching payments for batch: $e');
+            // Continue with other credits
           }
         }
 
         for (final entry in credits.entries) {
           final data = Map<String, dynamic>.from(entry.value as Map);
-          if (data['customerId'] == customerId) {
-            final credit = CreditEntry(
-              id: entry.key,
-              customerId: data['customerId'] ?? '',
-              storeId: data['storeId'],
-              item: data['item'] ?? '',
-              amount: (data['amount'] as num).toDouble(),
-              quantity: data['quantity'] != null ? (data['quantity'] as num).toInt() : 1,
-              unitPrice: data['unitPrice'] != null ? (data['unitPrice'] as num).toDouble() : null,
-              date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
-              dueDate: _fromTimestamp(data['dueDate'] as int?),
-            );
-            
-            // Use safe method to prevent duplicate payments
-            credit.addPaymentsSafely(paymentsByCreditId[entry.key] ?? []);
-            creditList.add(credit);
-          }
+          // Get payments for this credit
+          final payments = paymentsByCreditId[entry.key] ?? [];
+
+          final credit = CreditEntry(
+            id: entry.key,
+            customerId: data['customerId'] ?? '',
+            storeId: data['storeId'],
+            item: data['item'] ?? '',
+            amount: (data['amount'] as num).toDouble(),
+            quantity: data['quantity'] != null ? (data['quantity'] as num).toInt() : 1,
+            unitPrice: data['unitPrice'] != null ? (data['unitPrice'] as num).toDouble() : null,
+            date: _fromTimestamp(data['date'] as int?) ?? DateTime.now(),
+            dueDate: _fromTimestamp(data['dueDate'] as int?),
+          );
+          
+          // Use safe method to prevent duplicate payments
+          credit.addPaymentsSafely(payments);
+          creditList.add(credit);
         }
 
         return creditList;

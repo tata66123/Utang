@@ -1004,48 +1004,52 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
       ..sort((a, b) => a.name.compareTo(b.name));
   }
 
-  // Check if customer exists in database (Firebase + SQLite)
+  // Check if customer exists in database (Firebase + SQLite) - OPTIMIZED
   Future<bool> customerExists(String username) async {
     // Only check for existing CUSTOMERS, never create or infer from users
     // 1) In-memory
     final existingCustomer = findCustomerByUsername(username.trim());
     if (existingCustomer != null) return true;
 
-    // 2) SQLite customers table
+    // 2) SQLite customers table - OPTIMIZED: Use query instead of getAllCustomers
     try {
-      final allCustomers = await _dbHelper.getAllCustomers();
-      if (allCustomers.any((c) => c.name.toLowerCase() == username.trim().toLowerCase())) {
-        return true;
-      }
+      final customer = await _dbHelper.getCustomerByName(username.trim());
+      if (customer != null) return true;
     } catch (_) {}
 
-    // 3) Firebase - search ALL customers (including those with null storeId created by customers)
+    // 3) Firebase - OPTIMIZED: Only check if online and user exists
+    // For store owners, check customers with credits for this store
+    // For customers, only check themselves
     try {
       await _connectivityService.initialize();
       if (_connectivityService.isOnline && _state.currentUser != null) {
         await _firebaseService.initialize();
         
-        // Search all customers in Firebase
-        final allRemoteCustomers = await _firebaseService.getAllCustomers();
         final trimmedName = username.trim().toLowerCase();
         
-        for (final c in allRemoteCustomers) {
-          if (c.name.toLowerCase() == trimmedName) {
-            // Check if this customer is relevant to current user
-            bool shouldInclude = false;
-            if (_state.currentUser!.role == UserRole.storeOwner) {
-              // IMPORTANT: Store owners can ONLY see customers with transaction history
-              // Check if this customer has credits with this store
-              final customerCredits = await _firebaseService.getCreditsForStore(_state.currentUser!.id);
-              shouldInclude = customerCredits.any((credit) => credit.customerId == c.id);
-            } else {
-              // Customers only see themselves
-              shouldInclude = c.id == _state.currentUser!.id;
-            }
+        if (_state.currentUser!.role == UserRole.storeOwner) {
+          // OPTIMIZED: Get credits for store first, then check customer names
+          // This avoids fetching all customers
+          final storeCredits = await _firebaseService.getCreditsForStore(_state.currentUser!.id)
+              .timeout(const Duration(seconds: 15));
+          
+          final customerIds = storeCredits.map((c) => c.customerId).toSet();
+          if (customerIds.isNotEmpty) {
+            final customers = await _firebaseService.getCustomersByIds(customerIds.toList())
+                .timeout(const Duration(seconds: 10));
             
-            if (shouldInclude) {
-              return true;
+            for (final c in customers) {
+              if (c.name.toLowerCase() == trimmedName) {
+                return true;
+              }
             }
+          }
+        } else {
+          // Customers: Only check themselves
+          final customer = await _firebaseService.getCustomer(_state.currentUser!.id)
+              .timeout(const Duration(seconds: 5));
+          if (customer != null && customer.name.toLowerCase() == trimmedName) {
+            return true;
           }
         }
       }
@@ -1264,53 +1268,57 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     return await addCustomer(username);
   }
 
-  // Resolve existing customer by name without creating anything
+  // Resolve existing customer by name without creating anything - OPTIMIZED
   Future<Customer?> getCustomerByName(String name) async {
     final trimmed = name.trim();
     // In-memory
     final inMem = findCustomerByUsername(trimmed);
     if (inMem != null) return inMem;
 
-    // SQLite
+    // SQLite - OPTIMIZED: Use query instead of getAllCustomers
     try {
-      final all = await _dbHelper.getAllCustomers();
-      for (final c in all) {
-        if (c.name.toLowerCase() == trimmed.toLowerCase()) {
-          // Cache into memory
-          addCustomerToMemory(c);
-          return c;
-        }
+      final customer = await _dbHelper.getCustomerByName(trimmed);
+      if (customer != null) {
+        addCustomerToMemory(customer);
+        return customer;
       }
     } catch (_) {}
 
-    // Firebase - search ALL customers (not just for store) to find customers created by customers
+    // Firebase - OPTIMIZED: Only check relevant customers
     try {
       await _connectivityService.initialize();
       if (_connectivityService.isOnline && _state.currentUser != null) {
         await _firebaseService.initialize();
         
-        // Search all customers in Firebase
-        final allRemoteCustomers = await _firebaseService.getAllCustomers();
-        for (final c in allRemoteCustomers) {
-          if (c.name.toLowerCase() == trimmed.toLowerCase()) {
-            // Check if this customer is relevant to current user
-            bool shouldInclude = false;
-            if (_state.currentUser!.role == UserRole.storeOwner) {
-              // IMPORTANT: Store owners can ONLY see customers with transaction history
-              // Check if this customer has credits with this store
-              final customerCredits = await _firebaseService.getCreditsForStore(_state.currentUser!.id);
-              shouldInclude = customerCredits.any((credit) => credit.customerId == c.id);
-            } else {
-              // Customers only see themselves
-              shouldInclude = c.id == _state.currentUser!.id;
-            }
+        final trimmedLower = trimmed.toLowerCase();
+        
+        if (_state.currentUser!.role == UserRole.storeOwner) {
+          // OPTIMIZED: Get credits for store first, then check customer names
+          final storeCredits = await _firebaseService.getCreditsForStore(_state.currentUser!.id)
+              .timeout(const Duration(seconds: 15));
+          
+          final customerIds = storeCredits.map((c) => c.customerId).toSet();
+          if (customerIds.isNotEmpty) {
+            final customers = await _firebaseService.getCustomersByIds(customerIds.toList())
+                .timeout(const Duration(seconds: 10));
             
-            if (shouldInclude) {
-              // Cache locally
-              await _dbHelper.insertOrReplaceCustomer(c, markAsSynced: true);
-              addCustomerToMemory(c);
-              return c;
+            for (final c in customers) {
+              if (c.name.toLowerCase() == trimmedLower) {
+                // Cache locally
+                await _dbHelper.insertOrReplaceCustomer(c, markAsSynced: true);
+                addCustomerToMemory(c);
+                return c;
+              }
             }
+          }
+        } else {
+          // Customers: Only check themselves
+          final customer = await _firebaseService.getCustomer(_state.currentUser!.id)
+              .timeout(const Duration(seconds: 5));
+          if (customer != null && customer.name.toLowerCase() == trimmedLower) {
+            await _dbHelper.insertOrReplaceCustomer(customer, markAsSynced: true);
+            addCustomerToMemory(customer);
+            return customer;
           }
         }
       }
@@ -1605,6 +1613,9 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
           }
           final unsyncedCreditIds = unsyncedCredits.map((c) => c['id'] as String).toSet();
           
+          // OPTIMIZED: Track customer IDs to batch fetch after processing credits
+          final Set<String> customerIdsToFetch = {};
+          
           for (final entry in creditsData.entries) {
             if (processedCount >= maxBatchSize) {
               // Process remaining in next frame to prevent blocking
@@ -1666,24 +1677,9 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
                 // Only update if credit is already synced (no local changes)
                 await _dbHelper.insertOrReplaceCredit(credit, markAsSynced: true);
                 
-                // Fetch and cache customer if needed (with timeout and error handling)
-                try {
-                  final customer = await _firebaseService.getCustomer(credit.customerId).timeout(
-                    const Duration(seconds: 5),
-                    onTimeout: () {
-                      print('Credit handler: Timeout fetching customer ${credit.customerId}');
-                      return null;
-                    },
-                  );
-                  if (customer != null) {
-                    await _dbHelper.insertOrReplaceCustomer(customer, markAsSynced: true);
-                    if (!_state.customers.any((c) => c.id == customer.id)) {
-                      _state.customers.add(customer);
-                    }
-                  }
-                } catch (e) {
-                  print('Credit handler: Error fetching customer ${credit.customerId}: $e');
-                  // Continue processing other credits even if customer fetch fails
+                // Track customer ID for batch fetch (if not already in memory)
+                if (!_state.customers.any((c) => c.id == creditCustomerId)) {
+                  customerIdsToFetch.add(creditCustomerId);
                 }
               } catch (e) {
                 print('Credit handler: Error parsing credit $creditId: $e');
@@ -1691,6 +1687,24 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
               }
             }
           }
+          
+          // OPTIMIZED: Batch fetch all customers at once instead of individual calls
+          if (customerIdsToFetch.isNotEmpty) {
+            try {
+              final customers = await _firebaseService.getCustomersByIds(customerIdsToFetch.toList())
+                  .timeout(const Duration(seconds: 15));
+              for (final customer in customers) {
+                await _dbHelper.insertOrReplaceCustomer(customer, markAsSynced: true);
+                if (!_state.customers.any((c) => c.id == customer.id)) {
+                  _state.customers.add(customer);
+                }
+              }
+            } catch (e) {
+              print('Credit handler: Error batch fetching customers: $e');
+              // Continue even if batch fetch fails
+            }
+          }
+        } else if (creditsData is Map && creditsData.isEmpty) {
         } else if (creditsData is Map && creditsData.isEmpty) {
           print('Credit handler: Empty credits map, refreshing state');
           try {
@@ -1829,9 +1843,10 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
       print('Credit listener active for store owner: ${user.id}');
     }
 
-    // Set up customer listeners
+    // Set up customer listeners - OPTIMIZED: Only listen to relevant customers
     if (user.role == UserRole.storeOwner) {
       // Store owners listen to all customers (to see customers created on other devices)
+      // Filtering is done in customerHandler to only process relevant customers
       _customerSubscription = _firebaseService
           .listenToAllCustomers()
           .listen(
@@ -1842,11 +1857,34 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
             cancelOnError: false,
           );
     } else if (user.role == UserRole.customer) {
-      // Customers only listen to their own record
-      _customerSubscription = _firebaseService
-          .listenToAllCustomers()
+      // OPTIMIZED: Customers only need to listen to their own record
+      // Use a direct path listener instead of all customers
+      _customerSubscription = _firebaseService.database
+          .child('customers')
+          .child(user.id)
+          .onValue
           .listen(
-            customerHandler,
+            (event) async {
+              // Handle single customer update directly
+              if (event.snapshot.value != null) {
+                try {
+                  final customer = await _firebaseService.getCustomer(user.id);
+                  if (customer != null) {
+                    await _dbHelper.insertOrReplaceCustomer(customer, markAsSynced: true);
+                    // Update state
+                    final index = _state.customers.indexWhere((existing) => existing.id == customer.id);
+                    if (index >= 0) {
+                      _state.customers[index] = customer;
+                    } else {
+                      _state.customers.add(customer);
+                    }
+                    _debouncedNotifyListeners();
+                  }
+                } catch (e) {
+                  print('Error handling customer update: $e');
+                }
+              }
+            },
             onError: (error) {
               print('Customer listener error: $error');
             },

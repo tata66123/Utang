@@ -310,6 +310,20 @@ class DatabaseHelper {
     return Customer.fromJson(maps[0]);
   }
 
+  // Optimized: Query customer by name using SQL LIKE (case-insensitive)
+  Future<Customer?> getCustomerByName(String name) async {
+    final db = await database;
+    final trimmedName = name.trim();
+    final List<Map<String, dynamic>> maps = await db.query(
+      'customers',
+      where: 'LOWER(name) = LOWER(?)',
+      whereArgs: [trimmedName],
+      limit: 1,
+    );
+    if (maps.isEmpty) return null;
+    return Customer.fromJson(maps[0]);
+  }
+
   Future<void> updateCustomer(Customer customer) async {
     final db = await database;
     await db.update(
