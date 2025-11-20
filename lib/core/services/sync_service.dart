@@ -157,6 +157,43 @@ class SyncService {
             for (final payment in credit.payments) {
               await _dbHelper.markAsSynced('payments', payment.id);
             }
+            
+            // CRITICAL: Send notification to customer when offline-created credit is synced
+            if (credit.storeId != null && credit.customerId.isNotEmpty) {
+              try {
+                final customer = await _dbHelper.getCustomerById(credit.customerId);
+                if (customer != null) {
+                  // Get store owner info
+                  var storeOwner = await _dbHelper.getUserById(credit.storeId!);
+                  if (storeOwner == null) {
+                    storeOwner = await _firebaseService.getUser(credit.storeId!);
+                    if (storeOwner != null) {
+                      await _dbHelper.insertOrReplaceUser(storeOwner);
+                    }
+                  }
+                  
+                  final storeName = storeOwner?.storeName ?? 'Store';
+                  
+                  await _firebaseService.saveNotification(
+                    userId: credit.customerId,
+                    title: 'New Credit Added',
+                    message: '₱${credit.amount.toStringAsFixed(2)} credit added for ${credit.item}',
+                    type: 'credit_added',
+                    data: {
+                      'creditId': credit.id,
+                      'storeId': credit.storeId,
+                      'storeName': storeName,
+                      'amount': credit.amount,
+                      'item': credit.item,
+                    },
+                  );
+                  print('Credit notification sent to customer ${credit.customerId} after offline sync');
+                }
+              } catch (e) {
+                print('Error sending credit notification after sync: $e');
+                // Don't fail sync if notification fails
+              }
+            }
           } else {
             // Credit exists in Firebase - update it with the latest local changes (including new payments)
             print('Credit ${credit.item} (${credit.id}) already exists in Firebase, updating with local changes');

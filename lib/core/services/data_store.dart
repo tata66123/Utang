@@ -114,9 +114,21 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
       _debouncedNotifyListeners();
       
       if (user != null) {
+        // CRITICAL: Sync offline-created data FIRST before starting real-time listeners
+        // This prevents real-time listeners from overwriting unsynced local data
+        if (_connectivityService.isOnline && !_isSyncing) {
+          // Check for unsynced data and push it first
+          final unsyncedCredits = await _dbHelper.getUnsyncedRecords('credits');
+          final unsyncedPayments = await _dbHelper.getUnsyncedRecords('payments');
+          if (unsyncedCredits.isNotEmpty || unsyncedPayments.isNotEmpty) {
+            print('Pushing ${unsyncedCredits.length} unsynced credits and ${unsyncedPayments.length} unsynced payments before starting listeners...');
+            await _syncInBackground();
+          }
+        }
+        
         await _startRealtimeSyncForCurrentUser();
         
-        // Try to sync in background if online
+        // Try to sync in background if online (for any remaining unsynced data)
         if (_connectivityService.isOnline && !_isSyncing) {
           _syncInBackground();
         }
@@ -770,39 +782,43 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
       }
     }
     
-    // Immediately sync to Firebase
-    print('Syncing credit ${e.id} to Firebase for customer ${e.customerId}');
-    await _syncCreditToFirebase(e);
-    print('Credit ${e.id} synced to Firebase successfully');
+    // Check connectivity before syncing
+    await _connectivityService.initialize();
+    final isOnline = _connectivityService.isOnline;
     
-    // Send notification to the customer (push + in-app)
-    // Store owner gets in-app notification only
-    if (storeId != null) {
-      try {
-        final storeName = _state.currentUser?.storeName ?? 'Store';
-        
-        // Send push notification to customer via Firebase
-        await _firebaseService.saveNotification(
-          userId: customerId, // Send to customer, NOT store owner
-          title: 'New Credit Added',
-          message: '₱${amount.toStringAsFixed(2)} credit added for ${item.trim()}',
-          type: 'credit_added',
-          data: {
-            'creditId': e.id,
-            'storeId': storeId,
-            'storeName': storeName,
-            'amount': amount,
-            'item': item.trim(),
-          },
-        );
-        print('Credit notification sent to customer ${customerId} via Firebase');
-        
-        // Store owner gets in-app notification (local only, not via Firebase)
-        // This will be shown in the UI when they're on the app
-        // We'll handle this in the UI layer, not here
-      } catch (e) {
-        print('Error sending notification: $e');
+    if (isOnline) {
+      // Immediately sync to Firebase if online
+      print('Syncing credit ${e.id} to Firebase for customer ${e.customerId}');
+      await _syncCreditToFirebase(e);
+      print('Credit ${e.id} synced to Firebase successfully');
+      
+      // Send notification to the customer (push + in-app) - ONLY when online
+      if (storeId != null) {
+        try {
+          final storeName = _state.currentUser?.storeName ?? 'Store';
+          
+          // Send push notification to customer via Firebase
+          await _firebaseService.saveNotification(
+            userId: customerId, // Send to customer, NOT store owner
+            title: 'New Credit Added',
+            message: '₱${amount.toStringAsFixed(2)} credit added for ${item.trim()}',
+            type: 'credit_added',
+            data: {
+              'creditId': e.id,
+              'storeId': storeId,
+              'storeName': storeName,
+              'amount': amount,
+              'item': item.trim(),
+            },
+          );
+          print('Credit notification sent to customer ${customerId} via Firebase');
+        } catch (e) {
+          print('Error sending notification: $e');
+        }
       }
+    } else {
+      // Offline: Credit is saved locally with synced=0, will sync when back online
+      print('Credit ${e.id} saved offline. Will sync when back online.');
     }
     
     _state.credits.add(e);
@@ -818,42 +834,50 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     await _dbHelper.insertPayment(payment, creditId);
     await _dbHelper.updateCredit(entry);
     
-    // Immediately sync to Firebase in parallel for better performance
-    await Future.wait([
-      _syncCreditToFirebase(entry),
-      _syncPaymentToFirebase(payment, creditId),
-    ]);
+    // Check connectivity before syncing
+    await _connectivityService.initialize();
+    final isOnline = _connectivityService.isOnline;
     
-    // Send notification to customer (push + in-app)
-    // Store owner gets in-app notification only
-    try {
-      if (entry.storeId != null && entry.customerId.isNotEmpty) {
-        // Use cached user data if available, otherwise fetch from database
-        final storeOwner = (_state.currentUser?.id == entry.storeId) 
-            ? _state.currentUser 
-            : await _dbHelper.getUserById(entry.storeId!);
-        final storeName = storeOwner?.storeName ?? _state.currentUser?.storeName ?? 'Store';
-        
-        // Send push notification to customer via Firebase
-        // This will trigger a system-level push notification confirming payment was received
-        await _firebaseService.saveNotification(
-          userId: entry.customerId, // Send to customer, NOT store owner
-          title: 'Payment Received',
-          message: 'Your payment of ₱${amount.toStringAsFixed(2)} for ${entry.item} has been recorded. Remaining balance: ₱${entry.balance.toStringAsFixed(2)}',
-          type: 'payment_received',
-          data: {
-            'creditId': entry.id,
-            'storeId': entry.storeId,
-            'storeName': storeName,
-            'amount': amount,
-            'item': entry.item,
-            'balance': entry.balance,
-          },
-        );
-        print('Payment notification sent to customer ${entry.customerId} via Firebase - will trigger push notification');
+    if (isOnline) {
+      // Immediately sync to Firebase in parallel for better performance
+      await Future.wait([
+        _syncCreditToFirebase(entry),
+        _syncPaymentToFirebase(payment, creditId),
+      ]);
+      
+      // Send notification to customer (push + in-app) - ONLY when online
+      try {
+        if (entry.storeId != null && entry.customerId.isNotEmpty) {
+          // Use cached user data if available, otherwise fetch from database
+          final storeOwner = (_state.currentUser?.id == entry.storeId) 
+              ? _state.currentUser 
+              : await _dbHelper.getUserById(entry.storeId!);
+          final storeName = storeOwner?.storeName ?? _state.currentUser?.storeName ?? 'Store';
+          
+          // Send push notification to customer via Firebase
+          // This will trigger a system-level push notification confirming payment was received
+          await _firebaseService.saveNotification(
+            userId: entry.customerId, // Send to customer, NOT store owner
+            title: 'Payment Received',
+            message: 'Your payment of ₱${amount.toStringAsFixed(2)} for ${entry.item} has been recorded. Remaining balance: ₱${entry.balance.toStringAsFixed(2)}',
+            type: 'payment_received',
+            data: {
+              'creditId': entry.id,
+              'storeId': entry.storeId,
+              'storeName': storeName,
+              'amount': amount,
+              'item': entry.item,
+              'balance': entry.balance,
+            },
+          );
+          print('Payment notification sent to customer ${entry.customerId} via Firebase - will trigger push notification');
+        }
+      } catch (e) {
+        print('Error sending payment notification: $e');
       }
-    } catch (e) {
-      print('Error sending payment notification: $e');
+    } else {
+      // Offline: Payment is saved locally with synced=0, will sync when back online
+      print('Payment ${payment.id} saved offline. Will sync when back online.');
     }
     
     _debouncedNotifyListeners();
@@ -1351,7 +1375,30 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     List<CreditEntry> credits = <CreditEntry>[];
 
     if (user != null) {
-      // First, try to fetch from Firebase to ensure we have the latest data
+      // CRITICAL: Check if there are unsynced records BEFORE fetching from Firebase
+      // If there are unsynced records, we should push them first to prevent data loss
+      await _connectivityService.initialize();
+      if (_connectivityService.isOnline) {
+        // Check for unsynced records
+        final unsyncedCredits = await _dbHelper.getUnsyncedRecords('credits');
+        final unsyncedPayments = await _dbHelper.getUnsyncedRecords('payments');
+        final hasUnsyncedData = unsyncedCredits.isNotEmpty || unsyncedPayments.isNotEmpty;
+        
+        if (hasUnsyncedData && !_isSyncing) {
+          // CRITICAL: Push local unsynced data FIRST before fetching from Firebase
+          // This prevents offline-created data from being overwritten
+          print('Found unsynced data (${unsyncedCredits.length} credits, ${unsyncedPayments.length} payments). Pushing to Firebase first...');
+          try {
+            await _syncService.syncNow();
+            print('Unsynced data pushed successfully. Now fetching from Firebase...');
+          } catch (e) {
+            print('Error pushing unsynced data: $e');
+            // Continue anyway - at least we tried to push
+          }
+        }
+      }
+      
+      // Now fetch from Firebase to ensure we have the latest data
       try {
         await _connectivityService.initialize();
         if (_connectivityService.isOnline) {
@@ -1426,37 +1473,10 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
                 return <CreditEntry>[];
               },
             );
-            final Set<String> storeOwnerIds = <String>{};
+            // CRITICAL: Customers don't need store owner information - skip fetching it
+            // This improves performance and privacy (customers don't need to know store owner details)
             for (final credit in remoteCredits) {
-              if (credit.storeId != null && credit.storeId!.isNotEmpty) {
-                storeOwnerIds.add(credit.storeId!);
-              }
               await _dbHelper.insertOrReplaceCredit(credit, markAsSynced: true);
-            }
-
-            // Batch fetch store owners instead of sequential calls
-            if (storeOwnerIds.isNotEmpty) {
-              try {
-                final storeOwners = await Future.wait(
-                  storeOwnerIds.map((storeId) => _firebaseService.getUser(storeId).timeout(
-                    const Duration(seconds: 5),
-                  )),
-                ).timeout(
-                  const Duration(seconds: 20),
-                  onTimeout: () {
-                    print('Timeout batch fetching store owners');
-                    return <User?>[];
-                  },
-                );
-                for (final storeOwner in storeOwners) {
-                  if (storeOwner != null) {
-                    await _dbHelper.insertOrReplaceUser(storeOwner);
-                  }
-                }
-              } catch (e) {
-                print('Error batch fetching store owners: $e');
-                // Continue without store owner info - not critical
-              }
             }
           }
         }
@@ -1543,35 +1563,84 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
         print('Credit handler: Received data for user ${user.id} (role: ${user.role})');
         
         if (creditsData is Map) {
-          // Fetch ALL payments once at the start (efficient - single Firebase call) with timeout
-          DataSnapshot? allPaymentsSnapshot;
-          try {
-            allPaymentsSnapshot = await _firebaseService.database.child('payments').get().timeout(
-              const Duration(seconds: 10),
-            );
-          } catch (e) {
-            print('Credit handler: Payment fetch timed out or failed: $e');
-            // Continue with empty payments map
-            allPaymentsSnapshot = null;
-          }
+          // CRITICAL: For customers, only fetch payments for their credits (privacy & performance)
+          // For store owners, fetch all payments (they manage all credits)
           final Map<String, List<Payment>> paymentsByCreditId = {};
           
-          if (allPaymentsSnapshot != null && allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
-          final allPayments = Map<String, dynamic>.from(allPaymentsSnapshot.value as Map);
-          for (final paymentEntry in allPayments.entries) {
-            final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
-            final paymentCreditId = paymentData['creditId'] as String?;
-            if (paymentCreditId != null) {
-              paymentsByCreditId.putIfAbsent(paymentCreditId, () => []).add(
-                Payment(
-                  id: paymentEntry.key,
-                  amount: (paymentData['amount'] as num).toDouble(),
-                  date: DateTime.fromMillisecondsSinceEpoch(paymentData['date'] as int? ?? DateTime.now().millisecondsSinceEpoch),
-                ),
+          if (user.role == UserRole.customer) {
+            // CUSTOMER: First collect credit IDs that belong to this customer
+            final Set<String> customerCreditIds = {};
+            for (final entry in creditsData.entries) {
+              final creditData = entry.value;
+              if (creditData is Map) {
+                final creditCustomerId = creditData['customerId'] ?? '';
+                if (creditCustomerId == user.id) {
+                  customerCreditIds.add(entry.key);
+                }
+              }
+            }
+            
+            // Then fetch payments ONLY for this customer's credits
+            if (customerCreditIds.isNotEmpty) {
+              print('Credit handler: Fetching payments for ${customerCreditIds.length} customer credits');
+              for (final creditId in customerCreditIds) {
+                try {
+                  // Use Firebase query to get payments for this specific credit
+                  final paymentSnapshot = await _firebaseService.database
+                      .child('payments')
+                      .orderByChild('creditId')
+                      .equalTo(creditId)
+                      .get()
+                      .timeout(const Duration(seconds: 5));
+                  
+                  if (paymentSnapshot.exists && paymentSnapshot.value != null) {
+                    final paymentsData = paymentSnapshot.value as Map;
+                    final payments = <Payment>[];
+                    for (final paymentEntry in paymentsData.entries) {
+                      final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
+                      payments.add(Payment(
+                        id: paymentEntry.key,
+                        amount: (paymentData['amount'] as num).toDouble(),
+                        date: DateTime.fromMillisecondsSinceEpoch(paymentData['date'] as int? ?? DateTime.now().millisecondsSinceEpoch),
+                      ));
+                    }
+                    paymentsByCreditId[creditId] = payments;
+                  }
+                } catch (e) {
+                  print('Credit handler: Error fetching payments for credit $creditId: $e');
+                  // Continue with other credits even if one fails
+                }
+              }
+            }
+          } else {
+            // STORE OWNER: Fetch all payments (they manage all credits)
+            DataSnapshot? allPaymentsSnapshot;
+            try {
+              allPaymentsSnapshot = await _firebaseService.database.child('payments').get().timeout(
+                const Duration(seconds: 10),
               );
+            } catch (e) {
+              print('Credit handler: Payment fetch timed out or failed: $e');
+              allPaymentsSnapshot = null;
+            }
+            
+            if (allPaymentsSnapshot != null && allPaymentsSnapshot.exists && allPaymentsSnapshot.value != null) {
+              final allPayments = Map<String, dynamic>.from(allPaymentsSnapshot.value as Map);
+              for (final paymentEntry in allPayments.entries) {
+                final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
+                final paymentCreditId = paymentData['creditId'] as String?;
+                if (paymentCreditId != null) {
+                  paymentsByCreditId.putIfAbsent(paymentCreditId, () => []).add(
+                    Payment(
+                      id: paymentEntry.key,
+                      amount: (paymentData['amount'] as num).toDouble(),
+                      date: DateTime.fromMillisecondsSinceEpoch(paymentData['date'] as int? ?? DateTime.now().millisecondsSinceEpoch),
+                    ),
+                  );
+                }
+              }
             }
           }
-        }
         
           // Get local credits for comparison
           List<CreditEntry> localCredits;
@@ -1674,7 +1743,8 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
                 // Use safe method to prevent duplicate payments
                 credit.addPaymentsSafely(payments);
                 
-                // Only update if credit is already synced (no local changes)
+                // CRITICAL: insertOrReplaceCredit will now check if local record is unsynced
+                // and skip overwriting if it is. This protects offline-created data.
                 await _dbHelper.insertOrReplaceCredit(credit, markAsSynced: true);
                 
                 // Track customer ID for batch fetch (if not already in memory)
@@ -1704,7 +1774,6 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
               // Continue even if batch fetch fails
             }
           }
-        } else if (creditsData is Map && creditsData.isEmpty) {
         } else if (creditsData is Map && creditsData.isEmpty) {
           print('Credit handler: Empty credits map, refreshing state');
           try {

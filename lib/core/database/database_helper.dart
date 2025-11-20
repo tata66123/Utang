@@ -381,6 +381,38 @@ class DatabaseHelper {
 
   Future<void> insertOrReplaceCredit(CreditEntry credit, {bool markAsSynced = false}) async {
     final db = await database;
+    
+    // CRITICAL: Check if this credit is unsynced locally before overwriting
+    // If it's unsynced (synced=0), we should NOT overwrite it with Firebase data
+    // This protects offline-created data from being lost
+    bool shouldSkip = false;
+    bool isExistingSynced = true;
+    
+    if (markAsSynced) {
+      // When marking as synced (from Firebase), check if local version is unsynced
+      final existing = await db.query(
+        'credits',
+        where: 'id = ?',
+        whereArgs: [credit.id],
+        limit: 1,
+      );
+      
+      if (existing.isNotEmpty) {
+        final existingSynced = existing.first['synced'] as int? ?? 0;
+        isExistingSynced = existingSynced == 1;
+        if (existingSynced == 0) {
+          // Local record is unsynced - don't overwrite it! Let sync service push it first
+          print('Skipping overwrite of unsynced credit ${credit.id} - will be pushed by sync service');
+          shouldSkip = true;
+        }
+      }
+    }
+    
+    // Skip if local record is unsynced (protect offline data)
+    if (shouldSkip) {
+      return;
+    }
+    
     await db.insert('credits', {
       'id': credit.id,
       'customerId': credit.customerId,
@@ -397,17 +429,21 @@ class DatabaseHelper {
       'synced': markAsSynced ? 1 : 0,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-    await db.delete('payments', where: 'creditId = ?', whereArgs: [credit.id]);
-    for (final payment in credit.payments) {
-      await db.insert('payments', {
-        'id': payment.id,
-        'creditId': credit.id,
-        'amount': payment.amount,
-        'date': payment.date.toIso8601String(),
-        'createdAt': DateTime.now().toIso8601String(),
-        'updatedAt': DateTime.now().toIso8601String(),
-        'synced': markAsSynced ? 1 : 0,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    // Only update payments if we're actually updating the credit
+    // Don't delete payments for unsynced credits
+    if (!markAsSynced || isExistingSynced) {
+      await db.delete('payments', where: 'creditId = ?', whereArgs: [credit.id]);
+      for (final payment in credit.payments) {
+        await db.insert('payments', {
+          'id': payment.id,
+          'creditId': credit.id,
+          'amount': payment.amount,
+          'date': payment.date.toIso8601String(),
+          'createdAt': DateTime.now().toIso8601String(),
+          'updatedAt': DateTime.now().toIso8601String(),
+          'synced': markAsSynced ? 1 : 0,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
     }
   }
 

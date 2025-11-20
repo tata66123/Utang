@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/services/data_store.dart';
 import '../../../../core/services/connectivity_service.dart';
+import '../../../../core/database/database_helper.dart';
 
 class AddCreditPage extends StatefulWidget {
   final Customer? customer;
@@ -50,6 +52,9 @@ class _AddCreditPageState extends State<AddCreditPage> {
   ];
 
   DataStore get _store => DataStore.instance;
+  bool _isOnline = true;
+  int _unsyncedCount = 0;
+  StreamSubscription<bool>? _connectivitySubscription;
 
   @override
   void initState() {
@@ -60,6 +65,44 @@ class _AddCreditPageState extends State<AddCreditPage> {
     }
     // Refresh data from Firebase on page load
     _refreshCustomers();
+    _checkConnectivity();
+    _loadUnsyncedCount();
+  }
+
+  Future<void> _checkConnectivity() async {
+    final connectivityService = ConnectivityService();
+    await connectivityService.initialize();
+    setState(() {
+      _isOnline = connectivityService.isOnline;
+    });
+    
+    // Listen to connectivity changes
+    _connectivitySubscription = connectivityService.connectivityStream.listen((isOnline) {
+      if (mounted) {
+        setState(() {
+          _isOnline = isOnline;
+        });
+        if (isOnline) {
+          // Refresh unsynced count when coming back online
+          _loadUnsyncedCount();
+        }
+      }
+    });
+  }
+
+  Future<void> _loadUnsyncedCount() async {
+    try {
+      final dbHelper = DatabaseHelper();
+      final unsyncedCredits = await dbHelper.getUnsyncedRecords('credits');
+      final unsyncedPayments = await dbHelper.getUnsyncedRecords('payments');
+      if (mounted) {
+        setState(() {
+          _unsyncedCount = unsyncedCredits.length + unsyncedPayments.length;
+        });
+      }
+    } catch (e) {
+      print('Error loading unsynced count: $e');
+    }
   }
 
   Future<void> _refreshCustomers() async {
@@ -384,6 +427,9 @@ class _AddCreditPageState extends State<AddCreditPage> {
           }
         }
 
+        // Refresh unsynced count after adding credit
+        await _loadUnsyncedCount();
+
         // Refresh data to ensure UI shows latest information
         await _store.refreshData();
 
@@ -440,6 +486,7 @@ class _AddCreditPageState extends State<AddCreditPage> {
 
   @override
   void dispose() {
+    _connectivitySubscription?.cancel();
     for (final controller in _itemControllers) {
       controller.dispose();
     }
@@ -511,6 +558,81 @@ class _AddCreditPageState extends State<AddCreditPage> {
           key: _formKey,
           child: Column(
             children: [
+              // Offline Indicator Banner
+              if (!_isOnline || _unsyncedCount > 0)
+                Card(
+                  color: !_isOnline ? Colors.orange.shade50 : Colors.blue.shade50,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Row(
+                      children: [
+                        Icon(
+                          !_isOnline ? Icons.cloud_off : Icons.cloud_upload,
+                          color: !_isOnline ? Colors.orange : Colors.blue,
+                          size: 24,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                !_isOnline 
+                                  ? 'You are offline'
+                                  : 'Pending sync',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: !_isOnline ? Colors.orange.shade900 : Colors.blue.shade900,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                !_isOnline
+                                  ? 'Credits will be saved locally and synced when you\'re back online.'
+                                  : '$_unsyncedCount item(s) waiting to sync. They will sync automatically.',
+                                style: TextStyle(
+                                  color: !_isOnline ? Colors.orange.shade800 : Colors.blue.shade800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (_unsyncedCount > 0 && _isOnline)
+                          IconButton(
+                            icon: const Icon(Icons.refresh, size: 20),
+                            onPressed: () async {
+                              try {
+                                await _store.syncNow();
+                                await _loadUnsyncedCount();
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Sync completed'),
+                                      backgroundColor: Colors.green,
+                                    ),
+                                  );
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Sync failed: $e'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            tooltip: 'Sync now',
+                            color: Colors.blue.shade900,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
               // Customer Information (only show if no customer is pre-selected)
               if (widget.customer == null) ...[
                 Card(
