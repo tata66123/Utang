@@ -1102,53 +1102,100 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
     
     try {
       await _connectivityService.initialize();
-      if (_connectivityService.isOnline) {
-        await _firebaseService.initialize();
+      if (!_connectivityService.isOnline) {
+        return;
+      }
+      
+      await _firebaseService.initialize();
+      bool changed = false;
+      
+      if (_state.currentUser!.role == UserRole.storeOwner) {
+        // Fetch customers with storeId matching this store
+        final remoteCustomers = await _firebaseService.getCustomersForStore(_state.currentUser!.id);
         
-        if (_state.currentUser!.role == UserRole.storeOwner) {
-          // Fetch customers with storeId matching this store
-          final remoteCustomers = await _firebaseService.getCustomersForStore(_state.currentUser!.id);
-          
-          // Also fetch customers with null storeId (created by customers)
-          final allRemoteCustomers = await _firebaseService.getAllCustomers();
-          final customersWithNullStoreId = allRemoteCustomers.where((c) => 
-            (c.storeId == null || c.storeId == '') && !remoteCustomers.any((existing) => existing.id == c.id)
-          ).toList();
-          
-          // Cache all customers
-          for (final c in remoteCustomers) {
-            await _dbHelper.insertOrReplaceCustomer(c, markAsSynced: true);
-            if (!_state.customers.any((existing) => existing.id == c.id)) {
-              _state.customers.add(c);
-            }
+        // Also fetch customers with null storeId (created by customers)
+        final allRemoteCustomers = await _firebaseService.getAllCustomers();
+        final customersWithNullStoreId = allRemoteCustomers.where((c) => 
+          (c.storeId == null || c.storeId == '') && !remoteCustomers.any((existing) => existing.id == c.id)
+        ).toList();
+        
+        // Cache all customers
+        for (final c in remoteCustomers) {
+          await _dbHelper.insertOrReplaceCustomer(c, markAsSynced: true);
+          final index = _state.customers.indexWhere((existing) => existing.id == c.id);
+          if (index >= 0) {
+            _state.customers[index] = c;
+          } else {
+            _state.customers.add(c);
           }
-          
-          for (final c in customersWithNullStoreId) {
-            await _dbHelper.insertOrReplaceCustomer(c, markAsSynced: true);
-            if (!_state.customers.any((existing) => existing.id == c.id)) {
-              _state.customers.add(c);
-            }
-          }
-          
-          _debouncedNotifyListeners();
+          changed = true;
         }
+        
+        for (final c in customersWithNullStoreId) {
+          await _dbHelper.insertOrReplaceCustomer(c, markAsSynced: true);
+          final index = _state.customers.indexWhere((existing) => existing.id == c.id);
+          if (index >= 0) {
+            _state.customers[index] = c;
+          } else {
+            _state.customers.add(c);
+          }
+          changed = true;
+        }
+      } else {
+        // Customers: refresh their own record so they see updates from stores
+        final customer = await _firebaseService.getCustomer(_state.currentUser!.id);
+        if (customer != null) {
+          await _dbHelper.insertOrReplaceCustomer(customer, markAsSynced: true);
+          final index = _state.customers.indexWhere((existing) => existing.id == customer.id);
+          if (index >= 0) {
+            _state.customers[index] = customer;
+          } else {
+            _state.customers.add(customer);
+          }
+          changed = true;
+        }
+      }
+      
+      if (changed) {
+        _debouncedNotifyListeners();
       }
     } catch (e) {
       print('Error refreshing customers from Firebase: $e');
     }
   }
 
-  // Refresh data from database to ensure we have the latest information
-  Future<void> refreshData() async {
-      try {
-        if (_state.currentUser != null) {
-          await _setStateFromDatabase(_state.currentUser);
-          _debouncedNotifyListeners();
+  // Refresh data from database and optionally force remote sync/fetch
+  Future<void> refreshData({bool forceRemote = true}) async {
+    final user = _state.currentUser;
+    if (user == null) return;
+    
+    try {
+      if (forceRemote) {
+        try {
+          await syncNow();
+        } catch (e) {
+          print('Manual refresh sync failed: $e');
         }
-      } catch (e) {
-        print('Error refreshing data: $e');
       }
+      
+      await _connectivityService.initialize();
+      final bool online = _connectivityService.isOnline;
+      
+      if (forceRemote && online) {
+        await refreshCustomersFromFirebase();
+        await refreshCreditsFromFirebase();
+      }
+      
+      await _setStateFromDatabase(user);
+      _debouncedNotifyListeners();
+      
+      if (forceRemote && online) {
+        await restartRealtimeSync();
+      }
+    } catch (e) {
+      print('Error refreshing data: $e');
     }
+  }
 
   // Optimized method to refresh only a specific credit instead of all data
   Future<void> refreshCredit(String creditId) async {
@@ -1806,145 +1853,6 @@ class DataStore extends ChangeNotifier implements AuthServiceInterface {
             cancelOnError: false,
           );
     }
-
-    // Payment listener: When payments change, refresh affected credits
-    // CRITICAL: This must work on real devices with poor network conditions
-    void paymentHandler(DatabaseEvent event) async {
-      if (event.snapshot.value == null) return;
-      
-      print('Payment handler: Payment data changed, triggering credit refresh for user ${user.id}');
-      
-      try {
-        // Get affected credit IDs from the payment data
-        final paymentsData = event.snapshot.value;
-        final Set<String> affectedCreditIds = {};
-        
-        if (paymentsData is Map) {
-          for (final paymentEntry in paymentsData.entries) {
-            final paymentData = Map<String, dynamic>.from(paymentEntry.value as Map);
-            final paymentCreditId = paymentData['creditId'] as String?;
-            if (paymentCreditId != null) {
-              // Check if this credit is relevant to the current user
-              bool isRelevant = false;
-              if (user.role == UserRole.storeOwner) {
-                // For store owners, we need to check if the credit belongs to their store
-                // We'll fetch the credit to check
-                try {
-                  final creditSnapshot = await _firebaseService.database
-                      .child('credits')
-                      .child(paymentCreditId)
-                      .get();
-                  if (creditSnapshot.exists && creditSnapshot.value != null) {
-                    final creditData = Map<String, dynamic>.from(creditSnapshot.value as Map);
-                    isRelevant = creditData['storeId'] == user.id;
-                  }
-                } catch (e) {
-                  print('Payment handler: Error checking credit $paymentCreditId: $e');
-                }
-              } else if (user.role == UserRole.customer) {
-                // For customers, check if the credit belongs to them
-                try {
-                  final creditSnapshot = await _firebaseService.database
-                      .child('credits')
-                      .child(paymentCreditId)
-                      .get();
-                  if (creditSnapshot.exists && creditSnapshot.value != null) {
-                    final creditData = Map<String, dynamic>.from(creditSnapshot.value as Map);
-                    isRelevant = creditData['customerId'] == user.id;
-                  }
-                } catch (e) {
-                  print('Payment handler: Error checking credit $paymentCreditId: $e');
-                }
-              }
-              
-              if (isRelevant) {
-                affectedCreditIds.add(paymentCreditId);
-              }
-            }
-          }
-        }
-        
-        if (affectedCreditIds.isEmpty) {
-          print('Payment handler: No relevant credits affected');
-          return;
-        }
-        
-        print('Payment handler: Refreshing ${affectedCreditIds.length} affected credits');
-        
-        // Fetch and update each affected credit with fresh data from Firebase
-        // Use direct Firebase queries to avoid cached data
-        for (final creditId in affectedCreditIds) {
-          try {
-            // CRITICAL: Check if this credit is unsynced locally
-            // If unsynced, don't overwrite it - it will be pushed by sync service
-            final unsyncedCredits = await _dbHelper.getUnsyncedRecords('credits');
-            final isUnsynced = unsyncedCredits.any((c) => c['id'] == creditId);
-            
-            if (isUnsynced) {
-              print('Payment handler: Skipping credit $creditId - it has unsynced local changes that will be pushed');
-              continue; // Skip this credit, let sync service push it first
-            }
-            
-            // Fetch credit with all payments directly from Firebase (fresh data)
-            final credit = await _firebaseService.getCredit(creditId);
-            if (credit != null) {
-              // Verify it's still relevant
-              bool shouldUpdate = false;
-              if (user.role == UserRole.storeOwner) {
-                shouldUpdate = credit.storeId == user.id;
-              } else if (user.role == UserRole.customer) {
-                shouldUpdate = credit.customerId == user.id;
-              }
-              
-              if (shouldUpdate) {
-                await _dbHelper.insertOrReplaceCredit(credit, markAsSynced: true);
-                print('Payment handler: Updated credit $creditId with balance ${credit.balance}');
-              }
-            }
-          } catch (e) {
-            print('Payment handler: Error updating credit $creditId: $e');
-          }
-        }
-        
-        // Refresh state from database to update UI
-        await _setStateFromDatabase(user);
-        _debouncedNotifyListeners();
-        print('Payment handler: State refreshed and listeners notified');
-      } catch (e) {
-        print('Payment handler: Error refreshing credits: $e');
-        // Even on error, try to refresh state
-        try {
-          await _setStateFromDatabase(user);
-          _debouncedNotifyListeners();
-        } catch (e2) {
-          print('Payment handler: Error in fallback refresh: $e2');
-        }
-      }
-    }
-    
-    // Set up payment listener - triggers when payments change
-    // CRITICAL: This must work reliably on real devices
-    _paymentSubscription = _firebaseService.database
-        .child('payments')
-        .onValue
-        .listen(
-          (event) {
-            print('Payment listener triggered for user ${user.id}');
-            paymentHandler(event);
-          },
-          onError: (error) {
-            print('Payment listener error for user ${user.id}: $error');
-            // Try to reconnect after a delay - critical for real devices
-            Future.delayed(const Duration(seconds: 3), () {
-              if (_state.currentUser?.id == user.id) {
-                print('Attempting to reconnect payment listener for user ${user.id}');
-                _startRealtimeSyncForCurrentUser();
-              }
-            });
-          },
-          cancelOnError: false,
-        );
-    print('Payment listener active for user: ${user.id}');
 
     // Set up notification listener for real-time notifications
     // CRITICAL: Must work reliably on real devices

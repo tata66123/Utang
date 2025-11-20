@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../core/config/build_config.dart';
 import '../core/services/data_store.dart';
 import '../core/models/models.dart';
 import '../features/owner/pages/store_owner_navigation.dart';
@@ -18,6 +19,10 @@ class RoleBasedNavigation extends StatelessWidget {
           return const Scaffold(
             body: Center(child: Text('No user logged in')),
           );
+        }
+
+        if (BuildConfig.customerOnly) {
+          return const CustomerDashboard();
         }
 
         // Route based on user role

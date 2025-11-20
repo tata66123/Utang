@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../routes/role_based_navigation.dart';
+import '../../../../core/config/build_config.dart';
 import '../../../../core/services/data_store.dart';
 import '../../../../core/models/models.dart';
 
@@ -141,10 +142,14 @@ class _SignUpPageState extends State<SignUpPage> {
   @override
   void initState() {
     super.initState();
-    // Show role selection modal when page loads
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _showRoleSelectionModal();
-    });
+    if (BuildConfig.customerOnly) {
+      _selectedRole = UserRole.customer;
+    } else {
+      // Show role selection modal when page loads
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showRoleSelectionModal();
+      });
+    }
   }
 
   Future<void> _showRoleSelectionModal() async {
@@ -198,8 +203,9 @@ class _SignUpPageState extends State<SignUpPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Don't show form until role is selected
-    if (_selectedRole == null) {
+    final role = _selectedRole;
+    // Don't show form until role is selected (non-customer-only builds)
+    if (role == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Sign Up')),
         body: const Center(child: CircularProgressIndicator()),
@@ -224,14 +230,14 @@ class _SignUpPageState extends State<SignUpPage> {
                     children: <Widget>[
                       // Show role-specific title based on selected role
                       Text(
-                        _selectedRole == UserRole.storeOwner 
+                        role == UserRole.storeOwner 
                             ? 'Store Owner Registration' 
                             : 'Customer Registration',
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _selectedRole == UserRole.storeOwner 
+                        role == UserRole.storeOwner 
                             ? 'Register your store' 
                             : 'Create your account',
                         style: TextStyle(color: Colors.black54, fontSize: 14),
@@ -258,17 +264,17 @@ class _SignUpPageState extends State<SignUpPage> {
                       TextFormField(
                         controller: _nameController,
                         decoration: InputDecoration(
-                          labelText: _selectedRole == UserRole.storeOwner ? 'Store Name' : 'Full Name',
-                          prefixIcon: Icon(_selectedRole == UserRole.storeOwner ? Icons.store : Icons.person_outline),
+                          labelText: role == UserRole.storeOwner ? 'Store Name' : 'Full Name',
+                          prefixIcon: Icon(role == UserRole.storeOwner ? Icons.store : Icons.person_outline),
                         ),
                         validator: (String? v) {
                           if (v == null || v.isEmpty) {
-                            return _selectedRole == UserRole.storeOwner 
+                            return role == UserRole.storeOwner 
                                 ? 'Please enter your store name' 
                                 : 'Please enter your full name';
                           }
                           if (v.length < 2) {
-                            return _selectedRole == UserRole.storeOwner 
+                            return role == UserRole.storeOwner 
                                 ? 'Store name must be at least 2 characters'
                                 : 'Name must be at least 2 characters';
                           }
